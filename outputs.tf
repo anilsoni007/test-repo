@@ -8,12 +8,12 @@ output "cluster_name" {
   value       = aws_eks_cluster.main.name
 }
 
-output "cluster_security_group_id" {
-  description = "Security group ID attached to the EKS cluster"
-  value       = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+output "cluster_version" {
+  description = "EKS cluster version"
+  value       = aws_eks_cluster.main.version
 }
 
 output "configure_kubectl" {
   description = "Command to configure kubectl"
-  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${aws_eks_cluster.main.name}"
+  value       = "aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.main.name}"
 }
