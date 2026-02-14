@@ -10,6 +10,11 @@
         .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1 { color: #232f3e; margin-bottom: 20px; }
         .service-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .logo-section { text-align: center; margin-bottom: 40px; }
+        .logo { font-size: 120px; font-weight: bold; background: linear-gradient(45deg, #silver, #fff, #c0c0c0, #808080); background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: rotate 3s linear infinite, shine 2s ease-in-out infinite; text-shadow: 0 0 30px rgba(192,192,192,0.5); }
+        @keyframes rotate { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(360deg); } }
+        @keyframes shine { 0%, 100% { background-position: 0% 50%; filter: brightness(1); } 50% { background-position: 100% 50%; filter: brightness(1.5); } }
+        .maintainer { color: #666; font-size: 14px; margin-top: 10px; font-style: italic; }
         .service-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px 20px; border-radius: 8px; cursor: pointer; text-align: center; transition: transform 0.2s; }
         .service-card:hover { transform: translateY(-5px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
         .service-card.lambda { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
@@ -41,6 +46,10 @@
         <h1>🔍 AWS CloudWatch Logs Viewer</h1>
         
         <div id="serviceSelection" class="service-selection">
+            <div class="logo-section">
+                <div class="logo">TXM</div>
+                <div class="maintainer">Maintained by Anil Soni</div>
+            </div>
             <div class="service-cards">
                 <div class="service-card lambda" onclick="selectService('lambda')">
                     <h3>λ Lambda</h3>
