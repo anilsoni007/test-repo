@@ -3,9 +3,13 @@ import boto3
 from datetime import datetime, timedelta
 import json
 import time
+import os
 
 app = Flask(__name__)
-logs_client = boto3.client('logs')
+
+# Get region from environment or use default
+region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
+logs_client = boto3.client('logs', region_name=region)
 
 @app.route('/')
 def index():
