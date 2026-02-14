@@ -9,59 +9,127 @@
         body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1 { color: #232f3e; margin-bottom: 20px; }
+        .service-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .service-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px 20px; border-radius: 8px; cursor: pointer; text-align: center; transition: transform 0.2s; }
+        .service-card:hover { transform: translateY(-5px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .service-card.lambda { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .service-card.connect { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        .service-card.lex { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+        .service-card.api { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+        .service-card.ecs { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
+        .service-card.other { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); }
+        .service-card h3 { font-size: 20px; margin-bottom: 10px; }
+        .service-card p { font-size: 14px; opacity: 0.9; }
+        .viewer-section { display: none; }
+        .viewer-section.active { display: block; }
+        .back-btn { background: #6c757d; padding: 8px 15px; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 15px; }
+        .back-btn:hover { background: #5a6268; }
         .controls { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; margin-bottom: 20px; }
         select, input, button { padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
         button { background: #ff9900; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:hover { background: #ec7211; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
         .log-container { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; height: 600px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 13px; }
         .log-entry { padding: 5px 0; border-bottom: 1px solid #333; }
         .log-timestamp { color: #4ec9b0; }
         .log-message { color: #ce9178; }
         .error { color: #f48771; }
         .loading { text-align: center; padding: 20px; color: #666; }
-        .info { background: #e7f3ff; padding: 10px; border-radius: 4px; margin-bottom: 10px; color: #0066cc; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔍 AWS CloudWatch Logs Viewer</h1>
-        <div class="info">Select a log group to view logs from Lambda, Lex, Connect, and other AWS services</div>
         
-        <div class="controls">
-            <select id="logGroup">
-                <option value="">Select Log Group...</option>
-            </select>
-            <select id="logStream">
-                <option value="">All Streams</option>
-            </select>
-            <input type="number" id="hours" value="1" min="1" max="72" placeholder="Hours">
-            <button onclick="loadLogs()">Load Logs</button>
+        <div id="serviceSelection" class="service-selection">
+            <div class="service-cards">
+                <div class="service-card lambda" onclick="selectService('lambda')">
+                    <h3>λ Lambda</h3>
+                    <p>Function logs</p>
+                </div>
+                <div class="service-card connect" onclick="selectService('connect')">
+                    <h3>📞 Connect</h3>
+                    <p>Contact center logs</p>
+                </div>
+                <div class="service-card lex" onclick="selectService('lex')">
+                    <h3>💬 Lex</h3>
+                    <p>Chatbot logs</p>
+                </div>
+                <div class="service-card api" onclick="selectService('api-gateway')">
+                    <h3>🌐 API Gateway</h3>
+                    <p>API logs</p>
+                </div>
+                <div class="service-card ecs" onclick="selectService('ecs')">
+                    <h3>🐳 ECS</h3>
+                    <p>Container logs</p>
+                </div>
+                <div class="service-card other" onclick="selectService('all')">
+                    <h3>📋 All Services</h3>
+                    <p>View all log groups</p>
+                </div>
+            </div>
         </div>
         
-        <div class="log-container" id="logContainer">
-            <div class="loading">Select a log group and click "Load Logs" to view</div>
+        <div id="logViewer" class="viewer-section">
+            <button class="back-btn" onclick="goBack()">← Back to Services</button>
+            <div class="controls">
+                <select id="logGroup">
+                    <option value="">Select Log Group...</option>
+                </select>
+                <select id="logStream">
+                    <option value="">All Streams</option>
+                </select>
+                <input type="number" id="hours" value="1" min="1" max="72" placeholder="Hours">
+                <button onclick="loadLogs()">Load Logs</button>
+            </div>
+            
+            <div class="log-container" id="logContainer">
+                <div class="loading">Select a log group and click "Load Logs" to view</div>
+            </div>
         </div>
     </div>
 
     <script>
-        let logGroups = [];
+        let allLogGroups = [];
+        const serviceFilters = {
+            'lambda': '/aws/lambda/',
+            'connect': '/aws/connect/',
+            'lex': '/aws/lex/',
+            'api-gateway': '/aws/apigateway/',
+            'ecs': '/ecs/',
+            'all': ''
+        };
 
         async function loadLogGroups() {
             try {
                 const res = await fetch('/api/log-groups');
                 const data = await res.json();
-                logGroups = data.logGroups;
-                const select = document.getElementById('logGroup');
-                logGroups.forEach(lg => {
-                    const option = document.createElement('option');
-                    option.value = lg;
-                    option.textContent = lg;
-                    select.appendChild(option);
-                });
+                allLogGroups = data.logGroups;
             } catch (err) {
-                document.getElementById('logContainer').innerHTML = `<div class="error">Error loading log groups: ${err.message}</div>`;
+                alert('Error loading log groups: ' + err.message);
             }
+        }
+
+        function selectService(service) {
+            const filter = serviceFilters[service];
+            const filteredGroups = filter ? allLogGroups.filter(lg => lg.includes(filter)) : allLogGroups;
+            
+            const select = document.getElementById('logGroup');
+            select.innerHTML = '<option value="">Select Log Group...</option>';
+            filteredGroups.forEach(lg => {
+                const option = document.createElement('option');
+                option.value = lg;
+                option.textContent = lg;
+                select.appendChild(option);
+            });
+            
+            document.getElementById('serviceSelection').style.display = 'none';
+            document.getElementById('logViewer').classList.add('active');
+        }
+
+        function goBack() {
+            document.getElementById('logViewer').classList.remove('active');
+            document.getElementById('serviceSelection').style.display = 'block';
+            document.getElementById('logContainer').innerHTML = '<div class="loading">Select a log group and click "Load Logs" to view</div>';
         }
 
         async function loadLogStreams() {
@@ -115,9 +183,18 @@
                 }
                 
                 container.innerHTML = data.events.map(event => {
-                    const timestamp = new Date(event.timestamp).toISOString();
+                    const timestamp = new Date(event.timestamp).toLocaleString('en-IN', { 
+                        timeZone: 'Asia/Kolkata',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    });
                     return `<div class="log-entry">
-                        <span class="log-timestamp">[${timestamp}]</span>
+                        <span class="log-timestamp">[${timestamp} IST]</span>
                         <span class="log-message">${escapeHtml(event.message)}</span>
                     </div>`;
                 }).join('');
