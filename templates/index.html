@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS CloudWatch Logs Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #232f3e; margin-bottom: 20px; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; margin-bottom: 20px; }
+        select, input, button { padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        button { background: #ff9900; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #ec7211; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .log-container { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; height: 600px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 13px; }
+        .log-entry { padding: 5px 0; border-bottom: 1px solid #333; }
+        .log-timestamp { color: #4ec9b0; }
+        .log-message { color: #ce9178; }
+        .error { color: #f48771; }
+        .loading { text-align: center; padding: 20px; color: #666; }
+        .info { background: #e7f3ff; padding: 10px; border-radius: 4px; margin-bottom: 10px; color: #0066cc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 AWS CloudWatch Logs Viewer</h1>
+        <div class="info">Select a log group to view logs from Lambda, Lex, Connect, and other AWS services</div>
+        
+        <div class="controls">
+            <select id="logGroup">
+                <option value="">Select Log Group...</option>
+            </select>
+            <select id="logStream">
+                <option value="">All Streams</option>
+            </select>
+            <input type="number" id="hours" value="1" min="1" max="72" placeholder="Hours">
+            <button onclick="loadLogs()">Load Logs</button>
+        </div>
+        
+        <div class="log-container" id="logContainer">
+            <div class="loading">Select a log group and click "Load Logs" to view</div>
+        </div>
+    </div>
+
+    <script>
+        let logGroups = [];
+
+        async function loadLogGroups() {
+            try {
+                const res = await fetch('/api/log-groups');
+                const data = await res.json();
+                logGroups = data.logGroups;
+                const select = document.getElementById('logGroup');
+                logGroups.forEach(lg => {
+                    const option = document.createElement('option');
+                    option.value = lg;
+                    option.textContent = lg;
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                document.getElementById('logContainer').innerHTML = `<div class="error">Error loading log groups: ${err.message}</div>`;
+            }
+        }
+
+        async function loadLogStreams() {
+            const logGroup = document.getElementById('logGroup').value;
+            if (!logGroup) return;
+            
+            try {
+                const res = await fetch(`/api/log-streams/${encodeURIComponent(logGroup)}`);
+                const data = await res.json();
+                const select = document.getElementById('logStream');
+                select.innerHTML = '<option value="">All Streams</option>';
+                data.logStreams.forEach(ls => {
+                    const option = document.createElement('option');
+                    option.value = ls;
+                    option.textContent = ls;
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                console.error('Error loading streams:', err);
+            }
+        }
+
+        async function loadLogs() {
+            const logGroup = document.getElementById('logGroup').value;
+            const logStream = document.getElementById('logStream').value;
+            const hours = document.getElementById('hours').value;
+            
+            if (!logGroup) {
+                alert('Please select a log group');
+                return;
+            }
+            
+            document.getElementById('logContainer').innerHTML = '<div class="loading">Loading logs...</div>';
+            
+            try {
+                const params = new URLSearchParams({ logGroup, hours });
+                if (logStream) params.append('logStream', logStream);
+                
+                const res = await fetch(`/api/logs?${params}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    document.getElementById('logContainer').innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                const container = document.getElementById('logContainer');
+                if (data.events.length === 0) {
+                    container.innerHTML = '<div class="loading">No logs found for the selected time range</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.events.map(event => {
+                    const timestamp = new Date(event.timestamp).toISOString();
+                    return `<div class="log-entry">
+                        <span class="log-timestamp">[${timestamp}]</span>
+                        <span class="log-message">${escapeHtml(event.message)}</span>
+                    </div>`;
+                }).join('');
+                
+                container.scrollTop = container.scrollHeight;
+            } catch (err) {
+                document.getElementById('logContainer').innerHTML = `<div class="error">Error: ${err.message}</div>`;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.getElementById('logGroup').addEventListener('change', loadLogStreams);
+        
+        loadLogGroups();
+    </script>
+</body>
+</html>
