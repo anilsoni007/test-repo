@@ -179,6 +179,34 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref JBPMTargetGroup
 
+  JBPMInternalALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: !Ref PrivateSubnets
+      SecurityGroups:
+        - !Ref ServiceSecurityGroup
+      Scheme: internal
+      Type: application
+
+  JBPMInternalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /
+
+  JBPMInternalListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref JBPMInternalALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref JBPMInternalTargetGroup
+
 ########################################
 # ECS Service
 ########################################
