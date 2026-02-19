@@ -135,11 +135,13 @@ Resources:
       Protocol: HTTP
       VpcId: !Ref VpcId
       TargetType: ip
-      HealthCheckPath: /
+      HealthCheckPath: /jbpm-console
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200,302
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -280,3 +282,11 @@ Outputs:
   JbpmURL:
     Description: jBPM Application URL
     Value: !Sub 'http://${InternalALB.DNSName}'
+  
+  JbpmConsoleURL:
+    Description: jBPM Console URL (use this to access the web interface)
+    Value: !Sub 'http://${InternalALB.DNSName}/jbpm-console'
+  
+  JbpmBusinessCentralURL:
+    Description: jBPM Business Central URL
+    Value: !Sub 'http://${InternalALB.DNSName}/business-central'
