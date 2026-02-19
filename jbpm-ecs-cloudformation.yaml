@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'jBPM on ECS Fargate with EFS storage and internal ALB'
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where resources will be deployed
+  
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First private subnet ID
+  
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second private subnet ID
+  
+  JbpmImage:
+    Type: String
+    Default: jboss/jbpm-server-full:latest
+    Description: jBPM Docker image
+  
+  JbpmPort:
+    Type: Number
+    Default: 8080
+    Description: jBPM application port
+
+Resources:
+  # EFS File System for jBPM data persistence
+  JbpmEFS:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      FileSystemTags:
+        - Key: Name
+          Value: jbpm-efs
+
+  # EFS Mount Targets
+  EFSMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref JbpmEFS
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  EFSMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref JbpmEFS
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  # EFS Access Point
+  JbpmAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref JbpmEFS
+      PosixUser:
+        Uid: '1000'
+        Gid: '1000'
+      RootDirectory:
+        CreationInfo:
+          OwnerGid: '1000'
+          OwnerUid: '1000'
+          Permissions: '755'
+        Path: '/jbpm-data'
+
+  # Security Groups
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EFS mount targets
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref ECSTaskSecurityGroup
+      Tags:
+        - Key: Name
+          Value: jbpm-efs-sg
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal ALB security group
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/8
+      Tags:
+        - Key: Name
+          Value: jbpm-alb-sg
+
+  ECSTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS task security group
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref JbpmPort
+          ToPort: !Ref JbpmPort
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: jbpm-ecs-task-sg
+
+  # Internal Application Load Balancer
+  InternalALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: jbpm-internal-alb
+      Scheme: internal
+      Type: application
+      Subnets:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: jbpm-internal-alb
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: jbpm-tg
+      Port: !Ref JbpmPort
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref InternalALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # ECS Cluster
+  JbpmECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: jbpm-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  # CloudWatch Log Group
+  JbpmLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/jbpm
+      RetentionInDays: 7
+
+  # ECS Task Execution Role
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ECS Task Role
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EFSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticfilesystem:ClientMount
+                  - elasticfilesystem:ClientWrite
+                Resource: !GetAtt JbpmEFS.Arn
+
+  # ECS Task Definition
+  JbpmTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: jbpm-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: jbpm
+          Image: !Ref JbpmImage
+          PortMappings:
+            - ContainerPort: !Ref JbpmPort
+              Protocol: tcp
+          MountPoints:
+            - SourceVolume: jbpm-efs-volume
+              ContainerPath: /opt/jboss/.jbpm
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref JbpmLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: jbpm
+          Environment:
+            - Name: JBPM_DB_DRIVER
+              Value: h2
+      Volumes:
+        - Name: jbpm-efs-volume
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref JbpmEFS
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId: !Ref JbpmAccessPoint
+              IAM: ENABLED
+
+  # ECS Service
+  JbpmService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      ServiceName: jbpm-service
+      Cluster: !Ref JbpmECSCluster
+      TaskDefinition: !Ref JbpmTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+          SecurityGroups:
+            - !Ref ECSTaskSecurityGroup
+      LoadBalancers:
+        - ContainerName: jbpm
+          ContainerPort: !Ref JbpmPort
+          TargetGroupArn: !Ref ALBTargetGroup
+
+Outputs:
+  LoadBalancerDNS:
+    Description: Internal ALB DNS name to access jBPM
+    Value: !GetAtt InternalALB.DNSName
+  
+  EFSFileSystemId:
+    Description: EFS File System ID
+    Value: !Ref JbpmEFS
+  
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref JbpmECSCluster
+  
+  JbpmURL:
+    Description: jBPM Application URL
+    Value: !Sub 'http://${InternalALB.DNSName}'
