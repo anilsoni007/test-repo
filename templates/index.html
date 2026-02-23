@@ -6,11 +6,11 @@
     <title>AWS CloudWatch Logs Viewer</title>
     <style>
         :root {
-            --bg-primary: #f5f5f5;
-            --bg-secondary: #ffffff;
-            --text-primary: #232f3e;
-            --text-secondary: #666;
-            --border-color: #ddd;
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #2d2d2d;
+            --text-primary: #e0e0e0;
+            --text-secondary: #999;
+            --border-color: #444;
             --log-bg: #1e1e1e;
             --log-text: #d4d4d4;
             --log-border: #333;
@@ -78,6 +78,9 @@
         .log-message { color: #ce9178; }
         .error { color: #f48771; }
         .loading { text-align: center; padding: 20px; color: var(--text-secondary); }
+        .footer-warning { position: fixed; bottom: 0; left: 0; right: 0; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); color: white; padding: 12px 20px; text-align: center; font-size: 13px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); z-index: 1000; }
+        .footer-warning strong { font-weight: bold; }
+        .footer-warning .icon { font-size: 16px; margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -154,6 +157,11 @@
                 <div class="loading">Select a log group and click "Load Logs" to view</div>
             </div>
         </div>
+    </div>
+
+    <div class="footer-warning">
+        <span class="icon">⚠️</span>
+        <strong>CONFIDENTIAL:</strong> This resource and all log data are proprietary to TXM. Unauthorized access, distribution, or disclosure is strictly prohibited. All activities are monitored and logged.
     </div>
 
     <script>
