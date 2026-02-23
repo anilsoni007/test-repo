@@ -29,7 +29,8 @@
         body { font-family: Arial, sans-serif; background: var(--bg-primary); padding: 20px; transition: background 0.3s; }
         .container { max-width: 1400px; margin: 0 auto; background: var(--bg-secondary); padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: background 0.3s; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        h1 { color: var(--text-primary); margin: 0; }
+        h1 { color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 15px; }
+        h1::before, h1::after { content: '👣'; font-size: 24px; opacity: 0.6; }
         .stats-bar { display: flex; gap: 20px; align-items: center; }
         .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 6px; text-align: center; min-width: 120px; }
         .stat-card h3 { font-size: 28px; margin-bottom: 5px; }
