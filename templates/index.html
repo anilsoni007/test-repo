@@ -8,7 +8,12 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #232f3e; margin-bottom: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { color: #232f3e; margin: 0; }
+        .stats-bar { display: flex; gap: 20px; }
+        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 6px; text-align: center; min-width: 120px; }
+        .stat-card h3 { font-size: 28px; margin-bottom: 5px; }
+        .stat-card p { font-size: 12px; opacity: 0.9; }
         .service-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .logo-section { text-align: center; margin-top: 50px; padding: 30px 0; border-top: 2px solid #e0e0e0; }
         .logo { font-size: 140px; font-weight: 900; background: linear-gradient(45deg, #0066cc, #4da6ff, #0052a3, #0066cc); background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; animation: shine 2s ease-in-out infinite, rotate 4s linear infinite; display: inline-block; letter-spacing: 10px; }
@@ -29,7 +34,17 @@
         .viewer-section.active { display: block; }
         .back-btn { background: #6c757d; padding: 8px 15px; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 15px; }
         .back-btn:hover { background: #5a6268; }
-        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; margin-bottom: 20px; }
+        .search-box { margin-bottom: 15px; position: relative; }
+        .search-box input { width: 100%; padding: 12px 40px 12px 15px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .search-box input:focus { outline: none; border-color: #ff9900; }
+        .search-icon { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: #999; }
+        .favorites { display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
+        .fav-chip { background: #e3f2fd; color: #1976d2; padding: 6px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        .fav-chip:hover { background: #bbdefb; }
+        .fav-chip .remove { color: #d32f2f; font-weight: bold; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: 10px; margin-bottom: 20px; }
+        .btn-fav { background: #4caf50; padding: 10px 15px; }
+        .btn-fav:hover { background: #45a049; }
         select, input, button { padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
         button { background: #ff9900; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:hover { background: #ec7211; }
@@ -43,7 +58,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔍 AWS CloudWatch Logs Viewer</h1>
+        <div class="header">
+            <h1>🔍 AWS CloudWatch Logs Viewer</h1>
+            <div class="stats-bar">
+                <div class="stat-card">
+                    <h3 id="visitorCount">0</h3>
+                    <p>Today's Visitors</p>
+                </div>
+            </div>
+        </div>
         
         <div id="serviceSelection" class="service-selection">
             <div class="service-cards">
@@ -80,6 +103,14 @@
         
         <div id="logViewer" class="viewer-section">
             <button class="back-btn" onclick="goBack()">← Back to Services</button>
+            
+            <div class="search-box">
+                <input type="text" id="searchLogGroup" placeholder="🔍 Search log groups..." oninput="filterLogGroups()">
+                <span class="search-icon">⌕</span>
+            </div>
+            
+            <div class="favorites" id="favorites"></div>
+            
             <div class="controls">
                 <select id="logGroup">
                     <option value="">Select Log Group...</option>
@@ -89,6 +120,7 @@
                 </select>
                 <input type="number" id="hours" value="1" min="1" max="72" placeholder="Hours">
                 <button onclick="loadLogs()">Load Logs</button>
+                <button class="btn-fav" onclick="addToFavorites()">⭐ Favorite</button>
             </div>
             
             <div class="log-container" id="logContainer">
@@ -99,6 +131,8 @@
 
     <script>
         let allLogGroups = [];
+        let filteredLogGroups = [];
+        let favorites = JSON.parse(localStorage.getItem('logFavorites') || '[]');
         const serviceFilters = {
             'lambda': '/aws/lambda/',
             'connect': '/aws/connect/',
@@ -118,13 +152,72 @@
             }
         }
 
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('visitorCount').textContent = data.visitors;
+            } catch (err) {
+                console.error('Error loading stats:', err);
+            }
+        }
+
+        function renderFavorites() {
+            const container = document.getElementById('favorites');
+            if (favorites.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = favorites.map(fav => 
+                `<div class="fav-chip" onclick="selectFavorite('${fav}')">
+                    ⭐ ${fav.split('/').pop()}
+                    <span class="remove" onclick="event.stopPropagation(); removeFavorite('${fav}')">&times;</span>
+                </div>`
+            ).join('');
+        }
+
+        function addToFavorites() {
+            const logGroup = document.getElementById('logGroup').value;
+            if (!logGroup) {
+                alert('Please select a log group first');
+                return;
+            }
+            if (!favorites.includes(logGroup)) {
+                favorites.push(logGroup);
+                localStorage.setItem('logFavorites', JSON.stringify(favorites));
+                renderFavorites();
+            }
+        }
+
+        function removeFavorite(logGroup) {
+            favorites = favorites.filter(f => f !== logGroup);
+            localStorage.setItem('logFavorites', JSON.stringify(favorites));
+            renderFavorites();
+        }
+
+        function selectFavorite(logGroup) {
+            document.getElementById('logGroup').value = logGroup;
+            loadLogStreams();
+        }
+
+        function filterLogGroups() {
+            const search = document.getElementById('searchLogGroup').value.toLowerCase();
+            const select = document.getElementById('logGroup');
+            const options = Array.from(select.options);
+            
+            options.forEach(option => {
+                if (option.value === '') return;
+                option.style.display = option.value.toLowerCase().includes(search) ? '' : 'none';
+            });
+        }
+
         function selectService(service) {
             const filter = serviceFilters[service];
-            const filteredGroups = filter ? allLogGroups.filter(lg => lg.includes(filter)) : allLogGroups;
+            filteredLogGroups = filter ? allLogGroups.filter(lg => lg.includes(filter)) : allLogGroups;
             
             const select = document.getElementById('logGroup');
             select.innerHTML = '<option value="">Select Log Group...</option>';
-            filteredGroups.forEach(lg => {
+            filteredLogGroups.forEach(lg => {
                 const option = document.createElement('option');
                 option.value = lg;
                 option.textContent = lg;
@@ -133,6 +226,7 @@
             
             document.getElementById('serviceSelection').style.display = 'none';
             document.getElementById('logViewer').classList.add('active');
+            renderFavorites();
         }
 
         function goBack() {
@@ -223,6 +317,8 @@
         document.getElementById('logGroup').addEventListener('change', loadLogStreams);
         
         loadLogGroups();
+        loadStats();
+        setInterval(loadStats, 30000); // Refresh every 30 seconds
     </script>
 </body>
 </html>

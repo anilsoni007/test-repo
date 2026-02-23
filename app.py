@@ -1,19 +1,46 @@
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request, Response, session
 import boto3
 from datetime import datetime, timedelta
 import json
 import time
 import os
+import pytz
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Get region from environment or use default
 region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
 logs_client = boto3.client('logs', region_name=region)
 
+# In-memory storage (use Redis/DynamoDB for production)
+visitor_data = {'count': 0, 'date': datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat()}
+
 @app.route('/')
 def index():
+    # Track visitor
+    ist = pytz.timezone('Asia/Kolkata')
+    today = datetime.now(ist).date().isoformat()
+    
+    # Reset counter at midnight IST
+    if visitor_data['date'] != today:
+        visitor_data['count'] = 0
+        visitor_data['date'] = today
+    
+    # Increment if new session
+    if not session.get('counted'):
+        visitor_data['count'] += 1
+        session['counted'] = True
+        session.permanent = True
+    
     return render_template('index.html')
+
+@app.route('/api/stats')
+def get_stats():
+    return jsonify({
+        'visitors': visitor_data['count'],
+        'date': visitor_data['date']
+    })
 
 @app.route('/api/log-groups')
 def get_log_groups():
