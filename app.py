@@ -5,20 +5,23 @@ import json
 import time
 import os
 import pytz
+from werkzeug.security import generate_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
 # Get region from environment or use default
 region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
 logs_client = boto3.client('logs', region_name=region)
 
 # In-memory storage (use Redis/DynamoDB for production)
-visitor_data = {'count': 0, 'date': datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat()}
+visitor_data = {'count': 0, 'date': datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat(), 'ips': set()}
 
 @app.route('/')
 def index():
-    # Track visitor
+    # Track visitor by IP
     ist = pytz.timezone('Asia/Kolkata')
     today = datetime.now(ist).date().isoformat()
     
@@ -26,12 +29,13 @@ def index():
     if visitor_data['date'] != today:
         visitor_data['count'] = 0
         visitor_data['date'] = today
+        visitor_data['ips'] = set()
     
-    # Increment if new session
-    if not session.get('counted'):
+    # Get client IP
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if client_ip and client_ip not in visitor_data['ips']:
         visitor_data['count'] += 1
-        session['counted'] = True
-        session.permanent = True
+        visitor_data['ips'].add(client_ip)
     
     return render_template('index.html')
 
