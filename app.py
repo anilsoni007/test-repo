@@ -72,6 +72,7 @@ def get_logs():
     log_group = request.args.get('logGroup')
     log_stream = request.args.get('logStream')
     hours = int(request.args.get('hours', 1))
+    export_format = request.args.get('format', 'json')
     
     try:
         start_time = int((datetime.now() - timedelta(hours=hours)).timestamp() * 1000)
@@ -92,6 +93,22 @@ def get_logs():
             kwargs['nextToken'] = response['nextToken']
             response = logs_client.filter_log_events(**kwargs)
             events.extend(response['events'])
+        
+        # Handle export formats
+        if export_format == 'csv':
+            import csv
+            from io import StringIO
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Timestamp', 'Log Stream', 'Message'])
+            for event in events:
+                writer.writerow([
+                    datetime.fromtimestamp(event['timestamp']/1000).strftime('%Y-%m-%d %H:%M:%S'),
+                    event.get('logStreamName', ''),
+                    event['message']
+                ])
+            return Response(output.getvalue(), mimetype='text/csv', 
+                          headers={'Content-Disposition': f'attachment; filename=logs_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'})
         
         return jsonify({'events': events})
     except Exception as e:
