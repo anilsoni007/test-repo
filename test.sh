@@ -3,6 +3,7 @@
 # Basic Salesforce Deployment — Jenkins on EKS
 # Auth  : JWT Bearer Flow (External Client App)
 # Note  : Fresh pod per job — SF CLI installed at runtime
+# OS    : Auto-detects apt / yum / npm for CLI installation
 # ============================================================
 
 set -e
@@ -17,26 +18,50 @@ echo "========================================"
 echo " Salesforce Deployment — Build #${BUILD_NUMBER}"
 echo "========================================"
 
-# ── Step 1: Install SF CLI ──
+# ── Step 1: Install SF CLI (auto-detect package manager) ──
 echo "[1] Installing Salesforce CLI..."
 
-# Detect package manager and install accordingly
-if command -v npm &>/dev/null; then
-    echo "Using npm to install SF CLI..."
-    npm install -g @salesforce/cli --quiet
-elif command -v apt-get &>/dev/null; then
-    echo "Using apt to install SF CLI..."
-    apt-get update -qq
-    apt-get install -y wget
-    wget -q https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
-    mkdir -p /usr/local/sf
-    tar xJf sf-linux-x64.tar.xz -C /usr/local/sf --strip-components=1
-    ln -sf /usr/local/sf/bin/sf /usr/local/bin/sf
-    rm -f sf-linux-x64.tar.xz
-else
-    echo "No supported package manager found (npm or apt). Exiting."
+install_sf_cli() {
+
+    # ── Option A: npm ──────────────────────────────────────
+    if command -v npm &>/dev/null; then
+        echo "Detected: npm"
+        npm install -g @salesforce/cli --quiet
+        return 0
+    fi
+
+    # ── Option B: apt-get (Debian / Ubuntu) ────────────────
+    if command -v apt-get &>/dev/null; then
+        echo "Detected: apt-get (Debian/Ubuntu)"
+        apt-get update -qq
+        apt-get install -y wget ca-certificates
+        wget -q https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
+        mkdir -p /usr/local/sf
+        tar xJf sf-linux-x64.tar.xz -C /usr/local/sf --strip-components=1
+        ln -sf /usr/local/sf/bin/sf /usr/local/bin/sf
+        rm -f sf-linux-x64.tar.xz
+        return 0
+    fi
+
+    # ── Option C: yum (RHEL / CentOS / Amazon Linux) ───────
+    if command -v yum &>/dev/null; then
+        echo "Detected: yum (RHEL/CentOS/Amazon Linux)"
+        yum install -y wget tar xz
+        wget -q https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
+        mkdir -p /usr/local/sf
+        tar xJf sf-linux-x64.tar.xz -C /usr/local/sf --strip-components=1
+        ln -sf /usr/local/sf/bin/sf /usr/local/bin/sf
+        rm -f sf-linux-x64.tar.xz
+        return 0
+    fi
+
+    # ── No supported package manager found ─────────────────
+    echo "ERROR: No supported package manager found (npm / apt-get / yum)."
+    echo "       Please use a pod image based on Debian, Ubuntu, RHEL, CentOS, Amazon Linux, or Node.js."
     exit 1
-fi
+}
+
+install_sf_cli
 
 # ── Step 2: Verify SF CLI installed ──
 echo "[2] Checking SF CLI..."
