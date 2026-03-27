@@ -1,45 +1,55 @@
 #!/bin/bash
-set -e  # Exit on error
+set -e
 
-echo "🚀 Starting Salesforce Deployment..."
+echo "🚀 Starting job..."
 
 # -------------------------------
-# 1. Install Salesforce CLI
+# Force SF CLI config location
 # -------------------------------
-echo "📦 Installing Salesforce CLI..."
+export SF_HOME=/tmp/sf
+mkdir -p $SF_HOME
 
+# -------------------------------
+# Install SF CLI
+# -------------------------------
+echo "📦 Installing SF CLI..."
 curl -sL https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz -o sf.tar.xz
-
-mkdir -p ~/sf
-tar -xJf sf.tar.xz -C ~/sf --strip-components 1
-
-export PATH=$HOME/sf/bin:$PATH
+mkdir -p /tmp/sf-cli
+tar -xJf sf.tar.xz -C /tmp/sf-cli --strip-components 1
+export PATH=/tmp/sf-cli/bin:$PATH
 
 sf version
 
 # -------------------------------
-# 2. Authenticate using JWT
+# Auth
 # -------------------------------
-echo "🔐 Authenticating to Salesforce..."
+echo "🔐 Logging in..."
 
 sf org login jwt \
   --username "$SF_USERNAME" \
   --client-id "$SF_CLIENT_ID" \
   --jwt-key-file "$SF_JWT_KEY_FILE" \
-  --instance-url "$SF_INSTANCE_URL" \
-  --alias my-org \
-  --set-default
+  --instance-url "$SF_INSTANCE_URL"
 
-echo "✅ Authentication successful"
+echo "✅ Login done"
 
 # -------------------------------
-# 3. Deploy Metadata
+# DEBUG (IMPORTANT)
 # -------------------------------
-echo "📦 Starting Deployment..."
+echo "📌 SF_HOME=$SF_HOME"
+ls -la $SF_HOME
+
+echo "🔍 Checking org list..."
+sf org list --all
+
+# -------------------------------
+# Deploy (use username, NOT alias)
+# -------------------------------
+echo "🚀 Deploying..."
 
 sf project deploy start \
+  --target-org "$SF_USERNAME" \
   --source-dir force-app \
-  --target-org my-org \
-  --wait 10
+  --wait 20
 
-echo "✅ Deployment completed successfully"
+echo "✅ Deployment finished"
