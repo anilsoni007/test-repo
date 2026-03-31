@@ -1,55 +1,35 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting job..."
+echo "📦 Installing dependencies..."
+apk add --no-cache jq curl tar xz 2>/dev/null || true
 
-# -------------------------------
-# Force SF CLI config location
-# -------------------------------
-export SF_HOME=/tmp/sf
-mkdir -p $SF_HOME
-
-# -------------------------------
-# Install SF CLI
-# -------------------------------
 echo "📦 Installing SF CLI..."
 curl -sL https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz -o sf.tar.xz
 mkdir -p /tmp/sf-cli
 tar -xJf sf.tar.xz -C /tmp/sf-cli --strip-components 1
 export PATH=/tmp/sf-cli/bin:$PATH
 
-sf version
+echo "🔐 Logging in (stateless)..."
 
-# -------------------------------
-# Auth
-# -------------------------------
-echo "🔐 Logging in..."
-
-sf org login jwt \
+LOGIN_OUTPUT=$(sf org login jwt \
   --username "$SF_USERNAME" \
   --client-id "$SF_CLIENT_ID" \
   --jwt-key-file "$SF_JWT_KEY_FILE" \
-  --instance-url "$SF_INSTANCE_URL"
+  --instance-url "$SF_INSTANCE_URL" \
+  --json)
 
-echo "✅ Login done"
+echo "$LOGIN_OUTPUT"
 
-# -------------------------------
-# DEBUG (IMPORTANT)
-# -------------------------------
-echo "📌 SF_HOME=$SF_HOME"
-ls -la $SF_HOME
+ACCESS_TOKEN=$(echo $LOGIN_OUTPUT | jq -r '.result.accessToken')
+INSTANCE_URL=$(echo $LOGIN_OUTPUT | jq -r '.result.instanceUrl')
 
-echo "🔍 Checking org list..."
-sf org list --all
-
-# -------------------------------
-# Deploy (use username, NOT alias)
-# -------------------------------
-echo "🚀 Deploying..."
+echo "🚀 Deploying using access token..."
 
 sf project deploy start \
-  --target-org "$SF_USERNAME" \
+  --target-org "$ACCESS_TOKEN" \
+  --instance-url "$INSTANCE_URL" \
   --source-dir force-app \
   --wait 20
 
-echo "✅ Deployment finished"
+echo "✅ Deployment done"
