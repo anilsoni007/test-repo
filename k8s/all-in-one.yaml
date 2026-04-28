@@ -62,7 +62,7 @@ metadata:
   labels:
     app: cloudwatch-logs-viewer
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: cloudwatch-logs-viewer
   ports:
