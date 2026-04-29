@@ -5,7 +5,7 @@ metadata:
   name: cloudwatch-logs-viewer-sa
   namespace: default
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/CloudWatchLogsViewerRole
+    eks.amazonaws.com/role-arn: arn:aws:iam::113465795713:role/eksctl-soni-cluster-addon-iamserviceaccount-d-Role1-FofoqdtJReQC
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -27,7 +27,7 @@ spec:
       serviceAccountName: cloudwatch-logs-viewer-sa
       containers:
       - name: cloudwatch-logs-viewer
-        image: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cloudwatch-logs-viewer:latest
+        image: 113465795713.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
         ports:
         - containerPort: 5000
           protocol: TCP
@@ -80,14 +80,14 @@ metadata:
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: '443'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<REGION>:<ACCOUNT_ID>:certificate/<CERT_ID>
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:113465795713:certificate/72b5b96a-8f10-47b3-9c12-c30c9e9c5c20
     alb.ingress.kubernetes.io/healthcheck-path: /
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
     alb.ingress.kubernetes.io/success-codes: '200'
     alb.ingress.kubernetes.io/tags: Environment=production,Application=cloudwatch-logs-viewer
     alb.ingress.kubernetes.io/auth-type: cognito
-    alb.ingress.kubernetes.io/auth-idp-cognito: '{"userPoolArn":"arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/<USER_POOL_ID>","userPoolClientId":"<CLIENT_ID>","userPoolDomain":"cloudwatch-logs-viewer-<unique-suffix>"}'
+    alb.ingress.kubernetes.io/auth-idp-cognito: '{"userPoolArn":"arn:aws:cognito-idp:us-east-1:113465795713:userpool/us-east-1_ucz7jYwgg","userPoolClientId":"2qtuoc9m910adlv4r2sve90id7","userPoolDomain":"cloudwatch-logs-viewer-113465795713"}'
     alb.ingress.kubernetes.io/auth-on-unauthenticated-request: authenticate
     alb.ingress.kubernetes.io/auth-scope: openid
     alb.ingress.kubernetes.io/auth-session-cookie: AWSELBAuthSessionCookie
