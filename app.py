@@ -5,7 +5,17 @@ import json
 import time
 import os
 import pytz
+import logging
+import sys
 from werkzeug.security import generate_password_hash
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -14,6 +24,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
 # Get region from environment or use default
 region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
+logger.info(f"Initializing AWS clients for region: {region}")
 logs_client = boto3.client('logs', region_name=region)
 lex_client = boto3.client('lexv2-models', region_name=region)
 
@@ -60,42 +71,47 @@ def get_log_groups():
 
 @app.route('/api/lex-bots')
 def get_lex_bots():
+    logger.info("=== Starting Lex bots discovery ===")
     try:
         bots = []
         debug_info = {'lex_bots': [], 'log_groups': [], 'matches': []}
         
         # Get all CloudWatch log groups first
+        logger.info("Fetching all CloudWatch log groups...")
         all_log_groups = []
         paginator = logs_client.get_paginator('describe_log_groups')
         for page in paginator.paginate():
             all_log_groups.extend([lg['logGroupName'] for lg in page['logGroups']])
         
         debug_info['log_groups'] = all_log_groups[:20]  # First 20 for debugging
-        print(f"Total log groups found: {len(all_log_groups)}")
+        logger.info(f"Total log groups found: {len(all_log_groups)}")
         
         # Try Lex V2 to get bot names
         try:
+            logger.info("Fetching Lex V2 bots...")
             response = lex_client.list_bots(maxResults=1000)
             bot_summaries = response.get('botSummaries', [])
-            print(f"Total Lex bots found: {len(bot_summaries)}")
+            logger.info(f"Total Lex bots found: {len(bot_summaries)}")
             
             for bot_summary in bot_summaries:
                 bot_id = bot_summary['botId']
                 bot_name = bot_summary['botName']
                 debug_info['lex_bots'].append(bot_name)
-                print(f"Processing bot: {bot_name}")
+                logger.info(f"Processing bot: {bot_name}")
                 
                 # Search for log groups containing the bot name (case-insensitive)
                 bot_name_lower = bot_name.lower()
                 matching_log_groups = [lg for lg in all_log_groups if bot_name_lower in lg.lower()]
                 
                 if matching_log_groups:
+                    logger.info(f"Found {len(matching_log_groups)} matching log groups for {bot_name}")
                     # Get aliases for better display
                     try:
                         aliases_response = lex_client.list_bot_aliases(botId=bot_id, maxResults=1000)
                         alias_names = [alias.get('botAliasName', 'Unknown') for alias in aliases_response.get('botAliasSummaries', [])]
                         alias_display = ', '.join(alias_names[:3]) if alias_names else 'No Alias'
-                    except:
+                    except Exception as alias_err:
+                        logger.warning(f"Could not fetch aliases for {bot_name}: {alias_err}")
                         alias_display = 'Unknown'
                     
                     # Add each matching log group
@@ -107,16 +123,16 @@ def get_lex_bots():
                             'logGroup': log_group
                         })
                         debug_info['matches'].append(f"{bot_name} -> {log_group}")
-                        print(f"Matched: {bot_name} -> {log_group}")
+                        logger.info(f"Matched: {bot_name} -> {log_group}")
                 else:
-                    print(f"No log group found for bot: {bot_name}")
+                    logger.warning(f"No log group found for bot: {bot_name}")
                     
         except Exception as v2_error:
-            print(f"Lex V2 API error: {v2_error}")
+            logger.error(f"Lex V2 API error: {v2_error}")
             debug_info['lex_error'] = str(v2_error)
             # Fallback: show all log groups containing 'lex'
             lex_log_groups = [lg for lg in all_log_groups if 'lex' in lg.lower()]
-            print(f"Fallback: Found {len(lex_log_groups)} log groups with 'lex' in name")
+            logger.info(f"Fallback: Found {len(lex_log_groups)} log groups with 'lex' in name")
             for log_group in lex_log_groups:
                 parts = log_group.split('/')
                 bot_display_name = parts[-1] if len(parts) > 1 else log_group
@@ -127,12 +143,12 @@ def get_lex_bots():
                     'logGroup': log_group
                 })
         
-        print(f"Total Lex bots with logs found: {len(bots)}")
+        logger.info(f"=== Total Lex bots with logs found: {len(bots)} ===")
         return jsonify({'bots': bots, 'debug': debug_info})
     except Exception as e:
-        print(f"Error in get_lex_bots: {e}")
+        logger.error(f"Error in get_lex_bots: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e), 'bots': []}), 200
 
 @app.route('/api/log-streams/<path:log_group>')
@@ -233,4 +249,5 @@ def stream_logs():
     return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
+    logger.info("Starting Flask application...")
     app.run(host='0.0.0.0', port=5000, debug=True)
