@@ -71,82 +71,30 @@ def get_log_groups():
 
 @app.route('/api/lex-bots')
 def get_lex_bots():
-    logger.info("=== Starting Lex bots discovery ===")
+    logger.info("=== Fetching Lex log groups ===")
     try:
         bots = []
-        debug_info = {'lex_bots': [], 'log_groups': [], 'matches': []}
         
-        # Get all CloudWatch log groups first
-        logger.info("Fetching all CloudWatch log groups...")
-        all_log_groups = []
+        # Get all log groups under /aws/lex/ prefix (same as Lambda approach)
+        logger.info("Fetching log groups with prefix /aws/lex/...")
         paginator = logs_client.get_paginator('describe_log_groups')
-        for page in paginator.paginate():
-            all_log_groups.extend([lg['logGroupName'] for lg in page['logGroups']])
         
-        debug_info['log_groups'] = all_log_groups[:20]  # First 20 for debugging
-        logger.info(f"Total log groups found: {len(all_log_groups)}")
-        
-        # Try Lex V2 to get bot names
-        try:
-            logger.info("Fetching Lex V2 bots...")
-            response = lex_client.list_bots(maxResults=1000)
-            bot_summaries = response.get('botSummaries', [])
-            logger.info(f"Total Lex bots found: {len(bot_summaries)}")
-            
-            for bot_summary in bot_summaries:
-                bot_id = bot_summary['botId']
-                bot_name = bot_summary['botName']
-                debug_info['lex_bots'].append(bot_name)
-                logger.info(f"Processing bot: {bot_name}")
+        for page in paginator.paginate(logGroupNamePrefix='/aws/lex/'):
+            for log_group in page['logGroups']:
+                log_group_name = log_group['logGroupName']
+                # Extract bot name from path: /aws/lex/abcd-bot -> abcd-bot
+                bot_name = log_group_name.replace('/aws/lex/', '')
                 
-                # Search for log groups containing the bot name (case-insensitive)
-                bot_name_lower = bot_name.lower()
-                matching_log_groups = [lg for lg in all_log_groups if bot_name_lower in lg.lower()]
-                
-                if matching_log_groups:
-                    logger.info(f"Found {len(matching_log_groups)} matching log groups for {bot_name}")
-                    # Get aliases for better display
-                    try:
-                        aliases_response = lex_client.list_bot_aliases(botId=bot_id, maxResults=1000)
-                        alias_names = [alias.get('botAliasName', 'Unknown') for alias in aliases_response.get('botAliasSummaries', [])]
-                        alias_display = ', '.join(alias_names[:3]) if alias_names else 'No Alias'
-                    except Exception as alias_err:
-                        logger.warning(f"Could not fetch aliases for {bot_name}: {alias_err}")
-                        alias_display = 'Unknown'
-                    
-                    # Add each matching log group
-                    for log_group in matching_log_groups:
-                        bots.append({
-                            'botName': bot_name,
-                            'botId': bot_id,
-                            'aliasName': alias_display,
-                            'logGroup': log_group
-                        })
-                        debug_info['matches'].append(f"{bot_name} -> {log_group}")
-                        logger.info(f"Matched: {bot_name} -> {log_group}")
-                else:
-                    logger.warning(f"No log group found for bot: {bot_name}")
-                    
-        except Exception as v2_error:
-            logger.error(f"Lex V2 API error: {v2_error}")
-            debug_info['lex_error'] = str(v2_error)
-            # Fallback: show all log groups containing 'lex'
-            lex_log_groups = [lg for lg in all_log_groups if 'lex' in lg.lower()]
-            logger.info(f"Fallback: Found {len(lex_log_groups)} log groups with 'lex' in name")
-            for log_group in lex_log_groups:
-                parts = log_group.split('/')
-                bot_display_name = parts[-1] if len(parts) > 1 else log_group
                 bots.append({
-                    'botName': bot_display_name,
-                    'botId': '',
-                    'aliasName': 'CloudWatch',
-                    'logGroup': log_group
+                    'botName': bot_name,
+                    'logGroup': log_group_name
                 })
+                logger.info(f"Found Lex bot log group: {bot_name} -> {log_group_name}")
         
-        logger.info(f"=== Total Lex bots with logs found: {len(bots)} ===")
-        return jsonify({'bots': bots, 'debug': debug_info})
+        logger.info(f"=== Total Lex bot log groups found: {len(bots)} ===")
+        return jsonify({'bots': bots})
     except Exception as e:
-        logger.error(f"Error in get_lex_bots: {e}")
+        logger.error(f"Error fetching Lex log groups: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'error': str(e), 'bots': []}), 200

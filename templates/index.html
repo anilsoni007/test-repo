@@ -197,12 +197,6 @@
                 if (data.error) {
                     console.error('Lex API error:', data.error);
                 }
-                if (data.debug) {
-                    console.log('Debug Info:', data.debug);
-                    console.log('Lex Bots:', data.debug.lex_bots);
-                    console.log('Sample Log Groups:', data.debug.log_groups);
-                    console.log('Matches:', data.debug.matches);
-                }
                 lexBots = data.bots || [];
                 console.log('Loaded Lex bots:', lexBots.length, lexBots);
             } catch (err) {
@@ -306,7 +300,7 @@
             const filter = serviceFilters[service];
             
             if (service === 'lex') {
-                // For Lex, show bot names with their log groups
+                // For Lex, show bot names from /aws/lex/ log groups
                 const select = document.getElementById('logGroup');
                 select.innerHTML = '<option value="">Select Lex Bot...</option>';
                 
@@ -316,8 +310,7 @@
                     lexBots.forEach(bot => {
                         const option = document.createElement('option');
                         option.value = bot.logGroup;
-                        const displayName = bot.aliasName ? `${bot.botName} (${bot.aliasName})` : bot.botName;
-                        option.textContent = displayName;
+                        option.textContent = bot.botName;
                         select.appendChild(option);
                     });
                 }
