@@ -197,8 +197,14 @@
                 if (data.error) {
                     console.error('Lex API error:', data.error);
                 }
+                if (data.debug) {
+                    console.log('Debug Info:', data.debug);
+                    console.log('Lex Bots:', data.debug.lex_bots);
+                    console.log('Sample Log Groups:', data.debug.log_groups);
+                    console.log('Matches:', data.debug.matches);
+                }
                 lexBots = data.bots || [];
-                console.log('Loaded Lex bots:', lexBots.length);
+                console.log('Loaded Lex bots:', lexBots.length, lexBots);
             } catch (err) {
                 console.error('Error loading Lex bots:', err);
             }
