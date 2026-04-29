@@ -194,7 +194,11 @@
             try {
                 const res = await fetch('/api/lex-bots');
                 const data = await res.json();
+                if (data.error) {
+                    console.error('Lex API error:', data.error);
+                }
                 lexBots = data.bots || [];
+                console.log('Loaded Lex bots:', lexBots.length);
             } catch (err) {
                 console.error('Error loading Lex bots:', err);
             }
@@ -300,12 +304,17 @@
                 const select = document.getElementById('logGroup');
                 select.innerHTML = '<option value="">Select Lex Bot...</option>';
                 
-                lexBots.forEach(bot => {
-                    const option = document.createElement('option');
-                    option.value = bot.logGroup;
-                    option.textContent = `${bot.botName} (${bot.aliasName})`;
-                    select.appendChild(option);
-                });
+                if (lexBots.length === 0) {
+                    select.innerHTML += '<option value="" disabled>No Lex bots found with logging enabled</option>';
+                } else {
+                    lexBots.forEach(bot => {
+                        const option = document.createElement('option');
+                        option.value = bot.logGroup;
+                        const displayName = bot.aliasName ? `${bot.botName} (${bot.aliasName})` : bot.botName;
+                        option.textContent = displayName;
+                        select.appendChild(option);
+                    });
+                }
             } else {
                 filteredLogGroups = filter ? allLogGroups.filter(lg => lg.includes(filter)) : allLogGroups;
                 

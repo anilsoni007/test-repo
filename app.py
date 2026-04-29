@@ -62,42 +62,75 @@ def get_log_groups():
 def get_lex_bots():
     try:
         bots = []
-        response = lex_client.list_bots(maxResults=1000)
         
-        for bot_summary in response.get('botSummaries', []):
-            bot_id = bot_summary['botId']
-            bot_name = bot_summary['botName']
+        # Try Lex V2 first
+        try:
+            response = lex_client.list_bots(maxResults=1000)
             
-            # Get bot aliases to find log groups
-            aliases_response = lex_client.list_bot_aliases(botId=bot_id, maxResults=1000)
-            
-            for alias in aliases_response.get('botAliasSummaries', []):
-                alias_id = alias['botAliasId']
-                alias_name = alias.get('botAliasName', alias_id)
+            for bot_summary in response.get('botSummaries', []):
+                bot_id = bot_summary['botId']
+                bot_name = bot_summary['botName']
                 
-                # Get alias details to find conversation log settings
+                # Get bot aliases to find log groups
                 try:
-                    alias_details = lex_client.describe_bot_alias(botId=bot_id, botAliasId=alias_id)
-                    conv_logs = alias_details.get('conversationLogSettings', {})
-                    text_logs = conv_logs.get('textLogSettings', [])
+                    aliases_response = lex_client.list_bot_aliases(botId=bot_id, maxResults=1000)
                     
-                    for log_setting in text_logs:
-                        if log_setting.get('enabled'):
-                            log_group = log_setting['destination']['cloudWatch']['logGroupArn'].split(':')[-1]
-                            bots.append({
-                                'botName': bot_name,
-                                'botId': bot_id,
-                                'aliasName': alias_name,
-                                'aliasId': alias_id,
-                                'logGroup': log_group
-                            })
+                    for alias in aliases_response.get('botAliasSummaries', []):
+                        alias_id = alias['botAliasId']
+                        alias_name = alias.get('botAliasName', alias_id)
+                        
+                        # Get alias details to find conversation log settings
+                        try:
+                            alias_details = lex_client.describe_bot_alias(botId=bot_id, botAliasId=alias_id)
+                            conv_logs = alias_details.get('conversationLogSettings', {})
+                            text_logs = conv_logs.get('textLogSettings', [])
+                            
+                            for log_setting in text_logs:
+                                if log_setting.get('enabled'):
+                                    # Extract log group from ARN (handles custom log groups)
+                                    log_group_arn = log_setting.get('destination', {}).get('cloudWatch', {}).get('logGroupArn', '')
+                                    if log_group_arn:
+                                        # ARN format: arn:aws:logs:region:account:log-group:LOG_GROUP_NAME
+                                        log_group = log_group_arn.split(':log-group:')[-1]
+                                        bots.append({
+                                            'botName': bot_name,
+                                            'botId': bot_id,
+                                            'aliasName': alias_name,
+                                            'aliasId': alias_id,
+                                            'logGroup': log_group
+                                        })
+                                        print(f"Found Lex bot: {bot_name} ({alias_name}) -> {log_group}")
+                        except Exception as e:
+                            print(f"Error getting alias details for {bot_name}/{alias_name}: {e}")
+                            continue
                 except Exception as e:
-                    print(f"Error getting alias details for {bot_name}/{alias_name}: {e}")
+                    print(f"Error listing aliases for bot {bot_name}: {e}")
                     continue
+                    
+        except Exception as v2_error:
+            print(f"Lex V2 API error: {v2_error}")
+            # Fallback: get all log groups that match Lex pattern
+            try:
+                all_logs = logs_client.describe_log_groups(logGroupNamePrefix='/aws/lex/')
+                for lg in all_logs.get('logGroups', []):
+                    log_group_name = lg['logGroupName']
+                    parts = log_group_name.split('/')
+                    bot_display_name = parts[-1] if len(parts) > 3 else log_group_name
+                    bots.append({
+                        'botName': bot_display_name,
+                        'botId': '',
+                        'aliasName': 'CloudWatch',
+                        'aliasId': '',
+                        'logGroup': log_group_name
+                    })
+            except Exception as fallback_error:
+                print(f"Fallback error: {fallback_error}")
         
+        print(f"Total Lex bots found: {len(bots)}")
         return jsonify({'bots': bots})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in get_lex_bots: {e}")
+        return jsonify({'error': str(e), 'bots': []}), 200
 
 @app.route('/api/log-streams/<path:log_group>')
 def get_log_streams(log_group):
