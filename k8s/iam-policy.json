@@ -9,6 +9,15 @@
         "logs:FilterLogEvents"
       ],
       "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lex:ListBots",
+        "lex:ListBotAliases",
+        "lex:DescribeBotAlias"
+      ],
+      "Resource": "*"
     }
   ]
 }

@@ -63,6 +63,15 @@ Attach this policy to the EC2 instance role, ECS task role, or App Runner servic
         "logs:FilterLogEvents"
       ],
       "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lex:ListBots",
+        "lex:ListBotAliases",
+        "lex:DescribeBotAlias"
+      ],
+      "Resource": "*"
     }
   ]
 }

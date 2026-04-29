@@ -15,6 +15,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 # Get region from environment or use default
 region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
 logs_client = boto3.client('logs', region_name=region)
+lex_client = boto3.client('lexv2-models', region_name=region)
 
 # In-memory storage (use Redis/DynamoDB for production)
 visitor_data = {'count': 0, 'date': datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat(), 'ips': set()}
@@ -54,6 +55,47 @@ def get_log_groups():
         for page in paginator.paginate():
             log_groups.extend([lg['logGroupName'] for lg in page['logGroups']])
         return jsonify({'logGroups': sorted(log_groups)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/lex-bots')
+def get_lex_bots():
+    try:
+        bots = []
+        response = lex_client.list_bots(maxResults=1000)
+        
+        for bot_summary in response.get('botSummaries', []):
+            bot_id = bot_summary['botId']
+            bot_name = bot_summary['botName']
+            
+            # Get bot aliases to find log groups
+            aliases_response = lex_client.list_bot_aliases(botId=bot_id, maxResults=1000)
+            
+            for alias in aliases_response.get('botAliasSummaries', []):
+                alias_id = alias['botAliasId']
+                alias_name = alias.get('botAliasName', alias_id)
+                
+                # Get alias details to find conversation log settings
+                try:
+                    alias_details = lex_client.describe_bot_alias(botId=bot_id, botAliasId=alias_id)
+                    conv_logs = alias_details.get('conversationLogSettings', {})
+                    text_logs = conv_logs.get('textLogSettings', [])
+                    
+                    for log_setting in text_logs:
+                        if log_setting.get('enabled'):
+                            log_group = log_setting['destination']['cloudWatch']['logGroupArn'].split(':')[-1]
+                            bots.append({
+                                'botName': bot_name,
+                                'botId': bot_id,
+                                'aliasName': alias_name,
+                                'aliasId': alias_id,
+                                'logGroup': log_group
+                            })
+                except Exception as e:
+                    print(f"Error getting alias details for {bot_name}/{alias_name}: {e}")
+                    continue
+        
+        return jsonify({'bots': bots})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

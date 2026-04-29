@@ -170,10 +170,11 @@
         let filteredLogGroups = [];
         let favorites = JSON.parse(localStorage.getItem('logFavorites') || '[]');
         let currentLogs = [];
+        let lexBots = [];
         const serviceFilters = {
             'lambda': '/aws/lambda/',
             'connect': '/aws/connect/',
-            'lex': '/aws/lex/',
+            'lex': 'lex',
             'api-gateway': '/aws/apigateway/',
             'ecs': '/ecs/',
             'all': ''
@@ -186,6 +187,16 @@
                 allLogGroups = data.logGroups;
             } catch (err) {
                 alert('Error loading log groups: ' + err.message);
+            }
+        }
+
+        async function loadLexBots() {
+            try {
+                const res = await fetch('/api/lex-bots');
+                const data = await res.json();
+                lexBots = data.bots || [];
+            } catch (err) {
+                console.error('Error loading Lex bots:', err);
             }
         }
 
@@ -283,16 +294,30 @@
 
         function selectService(service) {
             const filter = serviceFilters[service];
-            filteredLogGroups = filter ? allLogGroups.filter(lg => lg.includes(filter)) : allLogGroups;
             
-            const select = document.getElementById('logGroup');
-            select.innerHTML = '<option value="">Select Log Group...</option>';
-            filteredLogGroups.forEach(lg => {
-                const option = document.createElement('option');
-                option.value = lg;
-                option.textContent = lg;
-                select.appendChild(option);
-            });
+            if (service === 'lex') {
+                // For Lex, show bot names with their log groups
+                const select = document.getElementById('logGroup');
+                select.innerHTML = '<option value="">Select Lex Bot...</option>';
+                
+                lexBots.forEach(bot => {
+                    const option = document.createElement('option');
+                    option.value = bot.logGroup;
+                    option.textContent = `${bot.botName} (${bot.aliasName})`;
+                    select.appendChild(option);
+                });
+            } else {
+                filteredLogGroups = filter ? allLogGroups.filter(lg => lg.includes(filter)) : allLogGroups;
+                
+                const select = document.getElementById('logGroup');
+                select.innerHTML = '<option value="">Select Log Group...</option>';
+                filteredLogGroups.forEach(lg => {
+                    const option = document.createElement('option');
+                    option.value = lg;
+                    option.textContent = lg;
+                    select.appendChild(option);
+                });
+            }
             
             document.getElementById('serviceSelection').style.display = 'none';
             document.getElementById('logViewer').classList.add('active');
@@ -393,6 +418,7 @@
         document.documentElement.setAttribute('data-theme', savedTheme);
         
         loadLogGroups();
+        loadLexBots();
         loadStats();
         setInterval(loadStats, 30000); // Refresh every 30 seconds
     </script>
