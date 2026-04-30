@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, Response, session
+from flask import Flask, render_template, jsonify, request, Response, session, redirect, url_for
 import boto3
 from datetime import datetime, timedelta
 import json
@@ -7,7 +7,8 @@ import os
 import pytz
 import logging
 import sys
-from werkzeug.security import generate_password_hash
+from functools import wraps
+from authlib.integrations.flask_client import OAuth
 
 # Configure logging
 logging.basicConfig(
@@ -22,6 +23,27 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-producti
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
+# Cognito Configuration
+COGNITO_DOMAIN = os.environ.get('COGNITO_DOMAIN')  # e.g., logs-viewer-xxx.auth.us-east-1.amazoncognito.com
+COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID')
+COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET')
+COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
+APP_URL = os.environ.get('APP_URL', 'http://localhost:5000')
+
+oauth = OAuth(app)
+if COGNITO_DOMAIN and COGNITO_CLIENT_ID:
+    cognito = oauth.register(
+        'cognito',
+        client_id=COGNITO_CLIENT_ID,
+        client_secret=COGNITO_CLIENT_SECRET,
+        server_metadata_url=f'https://{COGNITO_DOMAIN}/.well-known/openid-configuration',
+        client_kwargs={'scope': 'openid email profile'}
+    )
+    logger.info("Cognito authentication enabled")
+else:
+    cognito = None
+    logger.warning("Cognito not configured - running without authentication")
+
 # Get region from environment or use default
 region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
 logger.info(f"Initializing AWS clients for region: {region}")
@@ -31,7 +53,43 @@ lex_client = boto3.client('lexv2-models', region_name=region)
 # In-memory storage (use Redis/DynamoDB for production)
 visitor_data = {'count': 0, 'date': datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat(), 'ips': set()}
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not cognito:
+            return f(*args, **kwargs)
+        if 'user' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login')
+def login():
+    if not cognito:
+        return redirect(url_for('index'))
+    redirect_uri = f"{APP_URL}/callback"
+    return cognito.authorize_redirect(redirect_uri)
+
+@app.route('/callback')
+def callback():
+    if not cognito:
+        return redirect(url_for('index'))
+    token = cognito.authorize_access_token()
+    user_info = token.get('userinfo')
+    session['user'] = user_info
+    logger.info(f"User logged in: {user_info.get('email')}")
+    return redirect(url_for('index'))
+
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    if cognito:
+        logout_url = f"https://{COGNITO_DOMAIN}/logout?client_id={COGNITO_CLIENT_ID}&logout_uri={APP_URL}"
+        return redirect(logout_url)
+    return redirect(url_for('index'))
+
 @app.route('/')
+@login_required
 def index():
     # Track visitor by IP
     ist = pytz.timezone('Asia/Kolkata')
@@ -52,6 +110,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/api/stats')
+@login_required
 def get_stats():
     return jsonify({
         'visitors': visitor_data['count'],
@@ -59,6 +118,7 @@ def get_stats():
     })
 
 @app.route('/api/log-groups')
+@login_required
 def get_log_groups():
     try:
         log_groups = []
@@ -70,6 +130,7 @@ def get_log_groups():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/lex-bots')
+@login_required
 def get_lex_bots():
     logger.info("=== Fetching Lex log groups ===")
     try:
@@ -100,6 +161,7 @@ def get_lex_bots():
         return jsonify({'error': str(e), 'bots': []}), 200
 
 @app.route('/api/log-streams/<path:log_group>')
+@login_required
 def get_log_streams(log_group):
     try:
         response = logs_client.describe_log_streams(
@@ -114,6 +176,7 @@ def get_log_streams(log_group):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/logs')
+@login_required
 def get_logs():
     log_group = request.args.get('logGroup')
     log_stream = request.args.get('logStream')
@@ -161,6 +224,7 @@ def get_logs():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/stream-logs')
+@login_required
 def stream_logs():
     log_group = request.args.get('logGroup')
     log_stream = request.args.get('logStream')
