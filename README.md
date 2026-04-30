@@ -6,78 +6,101 @@ A web application for developers to access AWS CloudWatch logs without direct AW
 - View logs from Lambda, Lex, Amazon Connect, and all CloudWatch log groups
 - Filter by log group, log stream, and time range
 - Real-time log viewing
+- AWS Cognito authentication
 - No AWS console access required for developers
 
-## Deployment Options
+---
 
-### Option 1: AWS Elastic Beanstalk (Recommended)
+## 🚀 Quick Start
 
-1. Install AWS CLI and EB CLI:
-```bash
-pip install awsebcli
+### For EKS Deployment with Cognito (Recommended)
+
+**Start here:** [START_HERE_CORRECTED.md](START_HERE_CORRECTED.md)
+
+Then follow: [CORRECTED_DEPLOYMENT_GUIDE.md](CORRECTED_DEPLOYMENT_GUIDE.md)
+
+---
+
+## 📁 Documentation Structure
+
+### Main Guides (Use These!)
+1. **START_HERE_CORRECTED.md** - Overview and what to do
+2. **CORRECTED_DEPLOYMENT_GUIDE.md** - Complete step-by-step deployment
+3. **QUICK_FIX.md** - Quick reference card
+4. **DEPLOYMENT_FLOW.md** - Visual flow diagrams
+
+### Reference Guides
+5. **DEPLOYMENT_CHECKLIST.md** - Track your deployment progress
+6. **ARCHITECTURE.md** - System architecture and diagrams
+7. **COGNITO_EKS_SETUP.md** - User management and security
+
+### Alternative Deployments
+8. **EC2_DEPLOYMENT.md** - Deploy on EC2
+9. **EKS_DEPLOYMENT.md** - Generic EKS guide
+
+---
+
+## 📂 Kubernetes Manifests (k8s/)
+
+Deploy in this order:
+
+1. **02-deployment-no-auth.yaml** - Deploy FIRST (without Cognito)
+2. **03-service.yaml** - Deploy SECOND
+3. **04-ingress.yaml** - Deploy THIRD (creates ALB)
+4. **06-deployment-with-auth.yaml** - Deploy LAST (with Cognito)
+
+Templates (don't apply directly):
+- **01-serviceaccount.yaml** - Created by eksctl
+- **05-secret-template.yaml** - Use `kubectl create secret` instead
+
+---
+
+## 🎯 Deployment Overview
+
+### Your Configuration
+```
+Application URL:  https://log-shipper-app.170928836252.realhandsonlabs.net
+Cognito Domain:   logs-viewer-<timestamp>.auth.us-east-1.amazoncognito.com
+ECR Repository:   <account-id>.dkr.ecr.us-east-1.amazonaws.com/log-shipper
 ```
 
-2. Initialize and deploy:
-```bash
-eb init -p docker aws-logs-viewer --region us-east-1
-eb create logs-viewer-env
-eb open
-```
+### Deployment Steps
+1. Setup EKS cluster and prerequisites
+2. Create Cognito User Pool
+3. Build and push Docker image
+4. **Deploy WITHOUT authentication** (get ALB URL)
+5. Create Route53 DNS record
+6. Create Cognito App Client (with callback URL)
+7. Create Kubernetes secret (with real values)
+8. **Deploy WITH authentication**
+9. Add developers to Cognito
+10. ✅ Done!
 
-3. The URL will be automatically generated (e.g., `logs-viewer-env.us-east-1.elasticbeanstalk.com`)
+---
 
-### Option 2: AWS ECS Fargate
+## 🔐 Security Features
 
-1. Build and push Docker image:
-```bash
-aws ecr create-repository --repository-name logs-viewer
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.us-east-1.amazonaws.com
-docker build -t logs-viewer .
-docker tag logs-viewer:latest <account-id>.dkr.ecr.us-east-1.amazonaws.com/logs-viewer:latest
-docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/logs-viewer:latest
-```
+- HTTPS only (TLS 1.2+)
+- AWS Cognito OAuth 2.0 authentication
+- Email verification required
+- IAM roles (IRSA) - no hardcoded credentials
+- Session management (24-hour sessions)
+- Strong password policies
 
-2. Create ECS cluster and service via AWS Console or CLI
+---
 
-### Option 3: AWS App Runner (Easiest)
+## 💰 Cost Estimate
 
-1. Push code to GitHub
-2. Go to AWS App Runner console
-3. Create service from source code
-4. Connect GitHub repository
-5. Deploy automatically
+**~$150/month:**
+- EKS Cluster: $73/month
+- EC2 Nodes (2x t3.medium): $60/month
+- Application Load Balancer: $16/month
+- Cognito: FREE (first 50,000 users)
+- Route53: $0.50/month
 
-## IAM Permissions Required
+---
 
-Attach this policy to the EC2 instance role, ECS task role, or App Runner service role:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams",
-        "logs:FilterLogEvents"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "lex:ListBots",
-        "lex:ListBotAliases",
-        "lex:DescribeBotAlias"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-## Local Testing
+## 🛠️ Local Testing (Without Auth)
 
 ```bash
 pip install -r requirements.txt
@@ -86,22 +109,38 @@ python app.py
 
 Visit `http://localhost:5000`
 
-## Security Considerations
+---
 
-- Deploy in private subnet with ALB for HTTPS
-- Use AWS Cognito or IAM authentication for production
-- Restrict IAM role to specific log groups if needed
-- Enable VPC endpoints for CloudWatch Logs
+## 📞 Quick Commands
 
-## Usage
+```bash
+# View pods
+kubectl get pods -l app=cloudwatch-logs-viewer
 
-1. Share the application URL with your developers
-2. Developers select the log group (e.g., `/aws/lambda/function-name`)
-3. Optionally filter by log stream and time range
-4. Click "Load Logs" to view
+# View logs
+kubectl logs -l app=cloudwatch-logs-viewer -f
 
-## Cost Optimization
+# Restart app
+kubectl rollout restart deployment/cloudwatch-logs-viewer
 
-- CloudWatch Logs API calls are charged per request
-- Consider caching frequently accessed logs
-- Set appropriate time ranges to minimize data transfer
+# Add Cognito user
+aws cognito-idp admin-create-user \
+  --user-pool-id <USER_POOL_ID> \
+  --username user@company.com \
+  --user-attributes Name=email,Value=user@company.com Name=email_verified,Value=true \
+  --desired-delivery-mediums EMAIL
+```
+
+---
+
+## 🐛 Troubleshooting
+
+See [QUICK_FIX.md](QUICK_FIX.md) for common issues and solutions.
+
+---
+
+## 📖 Full Documentation
+
+For complete deployment instructions, see:
+- [START_HERE_CORRECTED.md](START_HERE_CORRECTED.md)
+- [CORRECTED_DEPLOYMENT_GUIDE.md](CORRECTED_DEPLOYMENT_GUIDE.md)

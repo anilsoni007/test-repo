@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, Response, session, redirect, url_for
+from flask import Flask, render_template, jsonify, request, Response, session, redirect, url_for, flash
 import boto3
 from datetime import datetime, timedelta
 import json
@@ -8,7 +8,9 @@ import pytz
 import logging
 import sys
 from functools import wraps
-from authlib.integrations.flask_client import OAuth
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from werkzeug.security import check_password_hash
 
 # Configure logging
 logging.basicConfig(
@@ -23,26 +25,12 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-producti
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
-# Cognito Configuration
-COGNITO_DOMAIN = os.environ.get('COGNITO_DOMAIN')  # e.g., logs-viewer-xxx.auth.us-east-1.amazoncognito.com
-COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID')
-COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET')
-COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
-APP_URL = os.environ.get('APP_URL', 'http://localhost:5000')
-
-oauth = OAuth(app)
-if COGNITO_DOMAIN and COGNITO_CLIENT_ID:
-    cognito = oauth.register(
-        'cognito',
-        client_id=COGNITO_CLIENT_ID,
-        client_secret=COGNITO_CLIENT_SECRET,
-        server_metadata_url=f'https://{COGNITO_DOMAIN}/.well-known/openid-configuration',
-        client_kwargs={'scope': 'openid email profile'}
-    )
-    logger.info("Cognito authentication enabled")
-else:
-    cognito = None
-    logger.warning("Cognito not configured - running without authentication")
+# Database Configuration
+DB_HOST = os.environ.get('DB_HOST')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME', 'logsviewer')
+DB_USER = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
 
 # Get region from environment or use default
 region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
@@ -53,40 +41,77 @@ lex_client = boto3.client('lexv2-models', region_name=region)
 # In-memory storage (use Redis/DynamoDB for production)
 visitor_data = {'count': 0, 'date': datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat(), 'ips': set()}
 
+def get_db_connection():
+    """Get database connection"""
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            cursor_factory=RealDictCursor
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        return None
+
+def verify_user(email, password):
+    """Verify user credentials"""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email, name, is_active FROM users WHERE email = %s AND password_hash = crypt(%s, password_hash)",
+                (email, password)
+            )
+            user = cur.fetchone()
+            return user
+    except Exception as e:
+        logger.error(f"Error verifying user: {e}")
+        return None
+    finally:
+        conn.close()
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not cognito:
-            return f(*args, **kwargs)
         if 'user' not in session:
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    if not cognito:
-        return redirect(url_for('index'))
-    redirect_uri = f"{APP_URL}/callback"
-    return cognito.authorize_redirect(redirect_uri)
-
-@app.route('/callback')
-def callback():
-    if not cognito:
-        return redirect(url_for('index'))
-    token = cognito.authorize_access_token()
-    user_info = token.get('userinfo')
-    session['user'] = user_info
-    logger.info(f"User logged in: {user_info.get('email')}")
-    return redirect(url_for('index'))
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        user = verify_user(email, password)
+        
+        if user and user['is_active']:
+            session['user'] = {
+                'id': user['id'],
+                'email': user['email'],
+                'name': user['name']
+            }
+            logger.info(f"User logged in: {email}")
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid email or password', 'error')
+            return redirect(url_for('login'))
+    
+    return render_template('login.html')
 
 @app.route('/logout')
 def logout():
     session.pop('user', None)
-    if cognito:
-        logout_url = f"https://{COGNITO_DOMAIN}/logout?client_id={COGNITO_CLIENT_ID}&logout_uri={APP_URL}"
-        return redirect(logout_url)
-    return redirect(url_for('index'))
+    flash('You have been logged out', 'info')
+    return redirect(url_for('login'))
 
 @app.route('/')
 @login_required
@@ -107,7 +132,7 @@ def index():
         visitor_data['count'] += 1
         visitor_data['ips'].add(client_ip)
     
-    return render_template('index.html')
+    return render_template('index.html', user=session.get('user'))
 
 @app.route('/api/stats')
 @login_required
@@ -136,14 +161,13 @@ def get_lex_bots():
     try:
         bots = []
         
-        # Get all log groups under /aws/lex/ prefix (same as Lambda approach)
+        # Get all log groups under /aws/lex/ prefix
         logger.info("Fetching log groups with prefix /aws/lex/...")
         paginator = logs_client.get_paginator('describe_log_groups')
         
         for page in paginator.paginate(logGroupNamePrefix='/aws/lex/'):
             for log_group in page['logGroups']:
                 log_group_name = log_group['logGroupName']
-                # Extract bot name from path: /aws/lex/abcd-bot -> abcd-bot
                 bot_name = log_group_name.replace('/aws/lex/', '')
                 
                 bots.append({
@@ -261,5 +285,5 @@ def stream_logs():
     return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    logger.info("Starting Flask application...")
+    logger.info("Starting Flask application with native authentication...")
     app.run(host='0.0.0.0', port=5000, debug=True)

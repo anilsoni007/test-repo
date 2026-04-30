@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,13 +19,43 @@ spec:
       serviceAccountName: cloudwatch-logs-viewer-sa
       containers:
       - name: cloudwatch-logs-viewer
-        image: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cloudwatch-logs-viewer:latest
+        image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
         ports:
         - containerPort: 5000
           protocol: TCP
         env:
         - name: AWS_REGION
           value: "us-east-1"
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: SECRET_KEY
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_PASSWORD
         resources:
           requests:
             memory: "256Mi"
@@ -34,13 +65,13 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /
+            path: /login
             port: 5000
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /
+            path: /login
             port: 5000
           initialDelaySeconds: 10
           periodSeconds: 5
