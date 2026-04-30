@@ -1,146 +1,121 @@
-# AWS CloudWatch Logs Viewer
+# Native Authentication Branch
 
-A web application for developers to access AWS CloudWatch logs without direct AWS console access.
+This branch implements **native login with RDS PostgreSQL** instead of AWS Cognito.
 
-## Features
-- View logs from Lambda, Lex, Amazon Connect, and all CloudWatch log groups
-- Filter by log group, log stream, and time range
-- Real-time log viewing
-- AWS Cognito authentication
-- No AWS console access required for developers
+## What Changed
 
----
-
-## 🚀 Quick Start
-
-### For EKS Deployment with Cognito (Recommended)
-
-**Start here:** [START_HERE_CORRECTED.md](START_HERE_CORRECTED.md)
-
-Then follow: [CORRECTED_DEPLOYMENT_GUIDE.md](CORRECTED_DEPLOYMENT_GUIDE.md)
+✅ **Removed:** AWS Cognito OAuth integration  
+✅ **Added:** Native login page with email/password  
+✅ **Added:** RDS PostgreSQL for user storage  
+✅ **Added:** Database schema and user management scripts  
 
 ---
 
-## 📁 Documentation Structure
+## Quick Start
 
-### Main Guides (Use These!)
-1. **START_HERE_CORRECTED.md** - Overview and what to do
-2. **CORRECTED_DEPLOYMENT_GUIDE.md** - Complete step-by-step deployment
-3. **QUICK_FIX.md** - Quick reference card
-4. **DEPLOYMENT_FLOW.md** - Visual flow diagrams
-
-### Reference Guides
-5. **DEPLOYMENT_CHECKLIST.md** - Track your deployment progress
-6. **ARCHITECTURE.md** - System architecture and diagrams
-7. **COGNITO_EKS_SETUP.md** - User management and security
-
-### Alternative Deployments
-8. **EC2_DEPLOYMENT.md** - Deploy on EC2
-9. **EKS_DEPLOYMENT.md** - Generic EKS guide
-
----
-
-## 📂 Kubernetes Manifests (k8s/)
-
-Deploy in this order:
-
-1. **02-deployment-no-auth.yaml** - Deploy FIRST (without Cognito)
-2. **03-service.yaml** - Deploy SECOND
-3. **04-ingress.yaml** - Deploy THIRD (creates ALB)
-4. **06-deployment-with-auth.yaml** - Deploy LAST (with Cognito)
-
-Templates (don't apply directly):
-- **01-serviceaccount.yaml** - Created by eksctl
-- **05-secret-template.yaml** - Use `kubectl create secret` instead
-
----
-
-## 🎯 Deployment Overview
-
-### Your Configuration
-```
-Application URL:  https://log-shipper-app.170928836252.realhandsonlabs.net
-Cognito Domain:   logs-viewer-<timestamp>.auth.us-east-1.amazoncognito.com
-ECR Repository:   <account-id>.dkr.ecr.us-east-1.amazonaws.com/log-shipper
-```
-
-### Deployment Steps
-1. Setup EKS cluster and prerequisites
-2. Create Cognito User Pool
-3. Build and push Docker image
-4. **Deploy WITHOUT authentication** (get ALB URL)
-5. Create Route53 DNS record
-6. Create Cognito App Client (with callback URL)
-7. Create Kubernetes secret (with real values)
-8. **Deploy WITH authentication**
-9. Add developers to Cognito
-10. ✅ Done!
-
----
-
-## 🔐 Security Features
-
-- HTTPS only (TLS 1.2+)
-- AWS Cognito OAuth 2.0 authentication
-- Email verification required
-- IAM roles (IRSA) - no hardcoded credentials
-- Session management (24-hour sessions)
-- Strong password policies
-
----
-
-## 💰 Cost Estimate
-
-**~$150/month:**
-- EKS Cluster: $73/month
-- EC2 Nodes (2x t3.medium): $60/month
-- Application Load Balancer: $16/month
-- Cognito: FREE (first 50,000 users)
-- Route53: $0.50/month
-
----
-
-## 🛠️ Local Testing (Without Auth)
-
+### 1. Create RDS PostgreSQL Database
 ```bash
-pip install -r requirements.txt
-python app.py
+# See NATIVE_AUTH_GUIDE.md for detailed steps
+aws rds create-db-instance --db-instance-identifier logs-viewer-db ...
 ```
 
-Visit `http://localhost:5000`
-
----
-
-## 📞 Quick Commands
-
+### 2. Initialize Database
 ```bash
-# View pods
-kubectl get pods -l app=cloudwatch-logs-viewer
+PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -U postgres -d logsviewer -f db/init.sql
+```
 
-# View logs
-kubectl logs -l app=cloudwatch-logs-viewer -f
+### 3. Add Users
+```bash
+./db/add-user.sh "user@company.com" "User Name" "Password123!"
+```
 
-# Restart app
-kubectl rollout restart deployment/cloudwatch-logs-viewer
+### 4. Deploy Application
+```bash
+# Create secret
+kubectl create secret generic app-secrets \
+  --from-literal=DB_HOST="your-rds-endpoint.rds.amazonaws.com" \
+  --from-literal=DB_PASSWORD="YourPassword" \
+  ...
 
-# Add Cognito user
-aws cognito-idp admin-create-user \
-  --user-pool-id <USER_POOL_ID> \
-  --username user@company.com \
-  --user-attributes Name=email,Value=user@company.com Name=email_verified,Value=true \
-  --desired-delivery-mediums EMAIL
+# Deploy
+kubectl apply -f k8s/07-deployment-native-auth.yaml
+```
+
+### 5. Login
+Visit: `https://log-shipper-app.170928836252.realhandsonlabs.net`
+
+---
+
+## Files Added/Modified
+
+### New Files:
+- `templates/login.html` - Login page UI
+- `db/init.sql` - Database schema
+- `db/add-user.sh` - Script to add users
+- `k8s/07-deployment-native-auth.yaml` - Deployment with RDS config
+- `NATIVE_AUTH_GUIDE.md` - Complete deployment guide
+
+### Modified Files:
+- `app.py` - Native auth instead of Cognito
+- `requirements.txt` - PostgreSQL driver instead of Authlib
+
+---
+
+## User Management
+
+### Add User
+```bash
+./db/add-user.sh "email@company.com" "Full Name" "Password123!"
+```
+
+### List Users
+```sql
+SELECT email, name, is_active, created_at FROM users;
+```
+
+### Deactivate User
+```sql
+UPDATE users SET is_active = false WHERE email = 'user@company.com';
+```
+
+### Reset Password
+```sql
+UPDATE users SET password_hash = crypt('NewPassword123!', gen_salt('bf')) 
+WHERE email = 'user@company.com';
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Benefits
 
-See [QUICK_FIX.md](QUICK_FIX.md) for common issues and solutions.
+✅ **Simpler** - No Cognito complexity  
+✅ **Full Control** - Manage users directly in database  
+✅ **Faster** - No external OAuth flow  
+✅ **Cheaper** - No Cognito costs (though RDS adds ~$15/month)  
+✅ **Flexible** - Easy to customize authentication logic  
 
 ---
 
-## 📖 Full Documentation
+## Documentation
 
-For complete deployment instructions, see:
-- [START_HERE_CORRECTED.md](START_HERE_CORRECTED.md)
-- [CORRECTED_DEPLOYMENT_GUIDE.md](CORRECTED_DEPLOYMENT_GUIDE.md)
+- **NATIVE_AUTH_GUIDE.md** - Complete deployment guide
+- **db/init.sql** - Database schema
+- **db/add-user.sh** - User management script
+
+---
+
+## Switching Between Branches
+
+### To use Cognito (main branch):
+```bash
+git checkout main
+```
+
+### To use Native Auth (this branch):
+```bash
+git checkout native_login
+```
+
+---
+
+**Ready to deploy? Follow NATIVE_AUTH_GUIDE.md!**
