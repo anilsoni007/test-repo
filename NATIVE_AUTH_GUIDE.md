@@ -165,7 +165,65 @@ DELETE FROM users WHERE email = 'user@company.com';
 
 ---
 
-## Step 4: Build and Push Docker Image
+## Step 4: Create IAM Role for CloudWatch Access
+
+### 4.1 Create IAM Policy
+
+```bash
+cat > cloudwatch-logs-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lex:ListBots",
+        "lex:ListBotAliases",
+        "lex:DescribeBotAlias"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+
+aws iam create-policy \
+  --policy-name CloudWatchLogsViewerPolicy \
+  --policy-document file://cloudwatch-logs-policy.json
+```
+
+### 4.2 Create Service Account with IRSA
+
+```bash
+export CLUSTER_NAME=logs-viewer-cluster
+export REGION=us-east-1
+export ACCOUNT_ID=170928836252
+
+eksctl create iamserviceaccount \
+  --name cloudwatch-logs-viewer-sa \
+  --namespace default \
+  --cluster $CLUSTER_NAME \
+  --region $REGION \
+  --attach-policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/CloudWatchLogsViewerPolicy \
+  --approve \
+  --override-existing-serviceaccounts
+
+# Verify
+kubectl get sa cloudwatch-logs-viewer-sa -o yaml
+```
+
+---
+
+## Step 5: Build and Push Docker Image
 
 ```bash
 cd d:/test-repo
@@ -182,7 +240,7 @@ docker push 170928836252.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
 
 ---
 
-## Step 5: Create Kubernetes Secret
+## Step 6: Create Kubernetes Secret
 
 ```bash
 kubectl create secret generic app-secrets \
@@ -200,15 +258,11 @@ kubectl get secret app-secrets
 
 ---
 
-## Step 6: Deploy Application
+## Step 7: Deploy Application
 
 ```bash
-# Update deployment with your account ID
-cd k8s
-sed -i "s|<ACCOUNT_ID>|170928836252|g" 07-deployment-native-auth.yaml
-
-# Deploy
-kubectl apply -f 07-deployment-native-auth.yaml
+# Deploy using all-in-one.yaml
+kubectl apply -f k8s/all-in-one.yaml
 
 # Check status
 kubectl get pods -l app=cloudwatch-logs-viewer
@@ -217,7 +271,7 @@ kubectl logs -l app=cloudwatch-logs-viewer --tail=50
 
 ---
 
-## Step 7: Test Login
+## Step 8: Test Login
 
 1. Visit: `https://log-shipper-app.170928836252.realhandsonlabs.net`
 2. Should see login page

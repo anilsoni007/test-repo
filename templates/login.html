@@ -18,31 +18,82 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: moveBackground 20s linear infinite;
+        }
+
+        @keyframes moveBackground {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
         }
 
         .login-container {
             background: white;
             padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             width: 100%;
-            max-width: 400px;
+            max-width: 420px;
+            position: relative;
+            z-index: 1;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .login-header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 35px;
+        }
+
+        .logo-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
         }
 
         .login-header h1 {
             color: #333;
             font-size: 28px;
             margin-bottom: 10px;
+            font-weight: 700;
         }
 
         .login-header p {
             color: #666;
-            font-size: 14px;
+            font-size: 15px;
         }
 
         .form-group {
@@ -72,19 +123,25 @@
 
         .btn-login {
             width: 100%;
-            padding: 12px;
+            padding: 13px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
         .btn-login:hover {
             transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-login:active {
+            transform: translateY(0);
         }
 
         .alert {
@@ -108,17 +165,23 @@
 
         .footer {
             text-align: center;
-            margin-top: 20px;
+            margin-top: 25px;
             color: #666;
-            font-size: 12px;
+            font-size: 13px;
+        }
+
+        .footer strong {
+            color: #667eea;
+            font-weight: 600;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>🔐 CloudWatch Logs Viewer</h1>
-            <p>Sign in to access logs</p>
+            <div class="logo-icon">🔍</div>
+            <h1>CloudWatch Logs Viewer</h1>
+            <p>Sign in to access your logs</p>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -146,7 +209,7 @@
         </form>
 
         <div class="footer">
-            <p>&copy; 2026 CloudWatch Logs Viewer</p>
+            <p>Developed by <strong>Anil Soni</strong></p>
         </div>
     </div>
 </body>

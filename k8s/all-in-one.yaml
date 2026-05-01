@@ -1,0 +1,130 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudwatch-logs-viewer-sa
+  namespace: default
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::055929692151:role/eksctl-soni-cluster-addon-iamserviceaccount-d-Role1-qFmh5JHpbcab
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudwatch-logs-viewer
+  namespace: default
+  labels:
+    app: cloudwatch-logs-viewer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudwatch-logs-viewer
+  template:
+    metadata:
+      labels:
+        app: cloudwatch-logs-viewer    spec:
+      serviceAccountName: cloudwatch-logs-viewer-sa
+      containers:
+      - name: cloudwatch-logs-viewer
+        image: 055929692151.dkr.ecr.us-east-1.amazonaws.com/log-shipper:2
+        ports:
+        - containerPort: 5000
+          protocol: TCP
+        env:
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: SECRET_KEY
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: DB_PASSWORD
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /login
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudwatch-logs-viewer
+  namespace: default
+  labels:
+    app: cloudwatch-logs-viewer
+spec:
+  type: ClusterIP
+  selector:
+    app: cloudwatch-logs-viewer
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cloudwatch-logs-viewer
+  namespace: default
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:055929692151:certificate/f51a57b9-19e5-4d4a-8191-ebc5d1d55ed5
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/healthcheck-path: /login
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/success-codes: '200'
+    alb.ingress.kubernetes.io/tags: Environment=production,Application=cloudwatch-logs-viewer
+spec:
+  ingressClassName: alb
+  rules:
+  - host: log-shipper-app.055929692151.realhandsonlabs.net
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloudwatch-logs-viewer
+            port:
+              number: 80
