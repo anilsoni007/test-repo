@@ -85,7 +85,7 @@ kubectl apply -f k8s/ingress.yaml
 ```
 
 ### 5. Access
-Visit: `https://log-shipper-app.170928836252.realhandsonlabs.net`
+Visit: `https://log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net`
 
 ---
 

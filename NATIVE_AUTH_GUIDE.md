@@ -206,7 +206,7 @@ aws iam create-policy \
 ```bash
 export CLUSTER_NAME=logs-viewer-cluster
 export REGION=us-east-1
-export ACCOUNT_ID=170928836252
+export ACCOUNT_ID=<ACCOUNT_ID>
 
 eksctl create iamserviceaccount \
   --name cloudwatch-logs-viewer-sa \
@@ -232,10 +232,10 @@ cd d:/test-repo
 docker build -t log-shipper .
 
 # Tag
-docker tag log-shipper:latest 170928836252.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
+docker tag log-shipper:latest <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
 
 # Push
-docker push 170928836252.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
+docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/log-shipper:latest
 ```
 
 ---
@@ -273,7 +273,7 @@ kubectl logs -l app=cloudwatch-logs-viewer --tail=50
 
 ## Step 8: Test Login
 
-1. Visit: `https://log-shipper-app.170928836252.realhandsonlabs.net`
+1. Visit: `https://log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net`
 2. Should see login page
 3. Enter email and password
 4. Should redirect to logs viewer

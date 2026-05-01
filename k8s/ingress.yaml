@@ -8,7 +8,7 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:170928836252:certificate/882cd935-3c94-4256-a2a6-ef8fb25d7958
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:<ACCOUNT_ID>:certificate/882cd935-3c94-4256-a2a6-ef8fb25d7958
     alb.ingress.kubernetes.io/ssl-redirect: '443'
     alb.ingress.kubernetes.io/healthcheck-path: /
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
@@ -18,7 +18,7 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-  - host: log-shipper-app.170928836252.realhandsonlabs.net
+  - host: log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net
     http:
       paths:
       - path: /

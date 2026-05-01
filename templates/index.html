@@ -94,10 +94,6 @@
         <div class="header">
             <h1>🔍 AWS CloudWatch Logs Viewer</h1>
             <div class="stats-bar">
-                <div class="stat-card">
-                    <h3 id="visitorCount">0</h3>
-                    <p>Today's Visitors</p>
-                </div>
                 <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌓</button>
                 <div class="user-info">
                     <span class="user-name">{{ user.name }}</span>
@@ -214,16 +210,6 @@
                 console.log('Loaded Lex bots:', lexBots.length, lexBots);
             } catch (err) {
                 console.error('Error loading Lex bots:', err);
-            }
-        }
-
-        async function loadStats() {
-            try {
-                const res = await fetch('/api/stats');
-                const data = await res.json();
-                document.getElementById('visitorCount').textContent = data.visitors;
-            } catch (err) {
-                console.error('Error loading stats:', err);
             }
         }
 
@@ -440,8 +426,6 @@
         
         loadLogGroups();
         loadLexBots();
-        loadStats();
-        setInterval(loadStats, 30000); // Refresh every 30 seconds
     </script>
 </body>
 </html>

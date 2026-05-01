@@ -5,7 +5,7 @@ metadata:
   name: cloudwatch-logs-viewer-sa
   namespace: default
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::055929692151:role/eksctl-soni-cluster-addon-iamserviceaccount-d-Role1-qFmh5JHpbcab
+    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/eksctl-soni-cluster-addon-iamserviceaccount-d-Role1-qFmh5JHpbcab
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -22,11 +22,12 @@ spec:
   template:
     metadata:
       labels:
-        app: cloudwatch-logs-viewer    spec:
+        app: cloudwatch-logs-viewer
+    spec:
       serviceAccountName: cloudwatch-logs-viewer-sa
       containers:
       - name: cloudwatch-logs-viewer
-        image: 055929692151.dkr.ecr.us-east-1.amazonaws.com/log-shipper:2
+        image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/log-shipper:3
         ports:
         - containerPort: 5000
           protocol: TCP
@@ -108,7 +109,7 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:055929692151:certificate/f51a57b9-19e5-4d4a-8191-ebc5d1d55ed5
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:<ACCOUNT_ID>:certificate/f51a57b9-19e5-4d4a-8191-ebc5d1d55ed5
     alb.ingress.kubernetes.io/ssl-redirect: '443'
     alb.ingress.kubernetes.io/healthcheck-path: /login
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
@@ -118,7 +119,7 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-  - host: log-shipper-app.055929692151.realhandsonlabs.net
+  - host: log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net
     http:
       paths:
       - path: /

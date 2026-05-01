@@ -11,14 +11,14 @@
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Route53 DNS                                 │
-│  log-shipper-app.170928836252.realhandsonlabs.net → ALB             │
+│  log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net → ALB             │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   Application Load Balancer (ALB)                    │
 │  - HTTPS (Port 443)                                                  │
-│  - SSL Certificate: *.170928836252.realhandsonlabs.net              │
+│  - SSL Certificate: *.<ACCOUNT_ID>.realhandsonlabs.net              │
 │  - Health Check: /login                                              │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
@@ -28,7 +28,7 @@
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Kubernetes Ingress                          │  │
 │  │  - IngressClass: alb                                           │  │
-│  │  - Host: log-shipper-app.170928836252.realhandsonlabs.net     │  │
+│  │  - Host: log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net     │  │
 │  └─────────────────────────────┬─────────────────────────────────┘  │
 │                                │                                     │
 │                                ▼                                     │
@@ -76,7 +76,7 @@
 ## Authentication Flow
 
 ```
-1. User visits: https://log-shipper-app.170928836252.realhandsonlabs.net
+1. User visits: https://log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net
    │
    ▼
 2. Flask app checks session
@@ -93,7 +93,7 @@
    │   Cognito validates credentials
    │                │
    │                ▼
-   │   Redirect to: https://log-shipper-app.170928836252.realhandsonlabs.net/callback
+   │   Redirect to: https://log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net/callback
    │                │
    │                ▼
    │   Flask exchanges code for tokens
@@ -225,7 +225,7 @@ Internet
 
 ### 1. Route53
 - DNS resolution
-- Maps `log-shipper-app.170928836252.realhandsonlabs.net` to ALB
+- Maps `log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net` to ALB
 
 ### 2. Application Load Balancer (ALB)
 - SSL/TLS termination

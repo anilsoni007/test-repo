@@ -42,7 +42,7 @@ kubectl apply -f k8s/07-deployment-native-auth.yaml
 ```
 
 ### 5. Login
-Visit: `https://log-shipper-app.170928836252.realhandsonlabs.net`
+Visit: `https://log-shipper-app.<ACCOUNT_ID>.realhandsonlabs.net`
 
 ---
 
