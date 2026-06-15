@@ -27,3 +27,12 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': json.dumps({'message': 'Webhook forwarded'})
     }
+
+
+#     {
+#   "body": "{\"ref\":\"refs/heads/main\",\"repository\":{\"name\":\"test-repo\"}}",
+#   "headers": {
+#     "X-GitHub-Event": "push",
+#     "X-GitHub-Delivery": "test-123"
+#   }
+# }
