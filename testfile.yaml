@@ -1,0 +1,535 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  OWASP Dependency-Track on ECS Fargate, behind an internal HTTPS ALB,
+  with PostgreSQL (RDS), EFS-backed persistent storage, and Azure AD
+  OIDC SSO. Deploys into an existing VPC with 2 (private/internal) subnets.
+
+# -----------------------------------------------------------------------
+# PARAMETERS
+# -----------------------------------------------------------------------
+Parameters:
+
+  ProjectName:
+    Type: String
+    Default: dependency-track
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID
+
+  VpcCidrBlock:
+    Type: String
+    Description: CIDR of the VPC (used to restrict ALB ingress). Adjust if you need a narrower range.
+    Default: 10.0.0.0/16
+
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Exactly 2 subnets (used for the ALB, ECS tasks, RDS and EFS). Must be in different AZs.
+
+  DomainName:
+    Type: String
+    Description: FQDN that will be used for Dependency-Track, e.g. dtrack.internal.example.com
+
+  CertificateArn:
+    Type: String
+    Description: ACM certificate ARN covering DomainName (must already be issued/validated)
+
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: (Optional) Route53 private hosted zone ID to auto-create the DNS record for DomainName. Leave blank to create the DNS record yourself.
+
+  # --- Azure AD / OIDC SSO ---
+  OidcIssuer:
+    Type: String
+    Description: Azure AD OIDC issuer URL, e.g. https://login.microsoftonline.com/<tenant-id>/v2.0
+
+  OidcClientId:
+    Type: String
+    Description: Application (client) ID of the Azure AD Enterprise App
+
+  OidcClientSecret:
+    Type: String
+    NoEcho: true
+    Description: Client secret of the Azure AD Enterprise App
+
+  # --- Container images ---
+  ApiServerImage:
+    Type: String
+    Default: dependencytrack/apiserver:latest
+
+  FrontendImage:
+    Type: String
+    Default: dependencytrack/frontend:latest
+
+  # --- Sizing ---
+  ApiServerCpu:
+    Type: Number
+    Default: 2048
+  ApiServerMemory:
+    Type: Number
+    Default: 4096
+  FrontendCpu:
+    Type: Number
+    Default: 256
+  FrontendMemory:
+    Type: Number
+    Default: 512
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+  # --- Database ---
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.small
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+  DBMasterUsername:
+    Type: String
+    Default: dtrack
+  DBName:
+    Type: String
+    Default: dtrack
+
+Conditions:
+  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, '']]
+
+# -----------------------------------------------------------------------
+# RESOURCES
+# -----------------------------------------------------------------------
+Resources:
+
+  # ---------------- Secrets ----------------
+  OidcClientSecretParam:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}/oidc-client-secret'
+      SecretString: !Ref OidcClientSecret
+
+  # ---------------- Security Groups ----------------
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName}-alb-sg'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidrBlock
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-alb-sg'
+
+  EcsTasksSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName}-ecs-tasks-sg'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-ecs-tasks-sg'
+
+  EcsTasksIngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EcsTasksSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName}-db-sg'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-db-sg'
+
+  DbIngressFromEcs:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref EcsTasksSecurityGroup
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName}-efs-sg'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-efs-sg'
+
+  EfsIngressFromEcs:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EfsSecurityGroup
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Ref EcsTasksSecurityGroup
+
+  # ---------------- EFS (persistent Dependency-Track data dir) ----------------
+  EfsFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-data'
+
+  EfsMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Select [0, !Ref PrivateSubnetIds]
+      SecurityGroups: [!Ref EfsSecurityGroup]
+
+  EfsMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Select [1, !Ref PrivateSubnetIds]
+      SecurityGroups: [!Ref EfsSecurityGroup]
+
+  EfsAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      PosixUser:
+        Uid: '1000'
+        Gid: '1000'
+      RootDirectory:
+        Path: /dependency-track
+        CreationInfo:
+          OwnerUid: '1000'
+          OwnerGid: '1000'
+          Permissions: '0755'
+
+  # ---------------- RDS PostgreSQL ----------------
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub '${ProjectName}-db-subnets'
+      SubnetIds: !Ref PrivateSubnetIds
+
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      Engine: postgres
+      EngineVersion: '15.7'
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBMasterUsername
+      ManageMasterUserPassword: true
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: [!Ref DbSecurityGroup]
+      PubliclyAccessible: false
+      MultiAZ: false
+      StorageEncrypted: true
+      BackupRetentionPeriod: 7
+
+  # ---------------- ECS Cluster / Logs ----------------
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${ProjectName}-cluster'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ProjectName}'
+      RetentionInDays: 30
+
+  # ---------------- IAM ----------------
+  EcsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ecs-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref OidcClientSecretParam
+                  - !GetAtt DbInstance.MasterUserSecret.SecretArn
+
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ecs-task-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+
+  # ---------------- ALB (internal, HTTPS) ----------------
+  InternalAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${ProjectName}-alb'
+      Scheme: internal
+      Type: application
+      Subnets: !Ref PrivateSubnetIds
+      SecurityGroups: [!Ref AlbSecurityGroup]
+
+  ApiServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-api-tg'
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 8080
+      TargetType: ip
+      HealthCheckPath: /api/version
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-fe-tg'
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 8080
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref InternalAlb
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  ApiListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ApiServerTargetGroup
+
+  # ---------------- Task Definitions ----------------
+  ApiServerTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-apiserver'
+      Cpu: !Ref ApiServerCpu
+      Memory: !Ref ApiServerMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt EcsExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      Volumes:
+        - Name: dtrack-data
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref EfsFileSystem
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId: !Ref EfsAccessPoint
+              IAM: DISABLED
+      ContainerDefinitions:
+        - Name: apiserver
+          Image: !Ref ApiServerImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+          MountPoints:
+            - SourceVolume: dtrack-data
+              ContainerPath: /data
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: apiserver
+          Environment:
+            - Name: ALPINE_DATABASE_MODE
+              Value: external
+            - Name: ALPINE_DATABASE_URL
+              Value: !Sub 'jdbc:postgresql://${DbInstance.Endpoint.Address}:${DbInstance.Endpoint.Port}/${DBName}'
+            - Name: ALPINE_DATABASE_DRIVER
+              Value: org.postgresql.Driver
+            - Name: ALPINE_DATABASE_USERNAME
+              Value: !Ref DBMasterUsername
+            - Name: ALPINE_OIDC_ENABLED
+              Value: 'true'
+            - Name: ALPINE_OIDC_ISSUER
+              Value: !Ref OidcIssuer
+            - Name: ALPINE_OIDC_CLIENT_ID
+              Value: !Ref OidcClientId
+            - Name: ALPINE_OIDC_USERNAME_CLAIM
+              Value: preferred_username
+            - Name: ALPINE_OIDC_TEAMS_CLAIM
+              Value: groups
+            - Name: ALPINE_OIDC_USER_PROVISIONING
+              Value: 'true'
+            - Name: ALPINE_OIDC_TEAM_SYNCHRONIZATION
+              Value: 'true'
+          Secrets:
+            - Name: ALPINE_DATABASE_PASSWORD
+              ValueFrom: !Sub '${DbInstance.MasterUserSecret.SecretArn}:password::'
+            - Name: ALPINE_OIDC_CLIENT_SECRET
+              ValueFrom: !Ref OidcClientSecretParam
+
+  FrontendTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-frontend'
+      Cpu: !Ref FrontendCpu
+      Memory: !Ref FrontendMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt EcsExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      ContainerDefinitions:
+        - Name: frontend
+          Image: !Ref FrontendImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+          Environment:
+            - Name: API_BASE_URL
+              Value: !Sub 'https://${DomainName}'
+            - Name: OIDC_ISSUER
+              Value: !Ref OidcIssuer
+            - Name: OIDC_CLIENT_ID
+              Value: !Ref OidcClientId
+            - Name: OIDC_SCOPE
+              Value: 'openid profile email'
+            - Name: OIDC_FLOW
+              Value: pkce
+
+  # ---------------- ECS Services ----------------
+  ApiServerService:
+    Type: AWS::ECS::Service
+    DependsOn: ApiListenerRule
+    Properties:
+      ServiceName: !Sub '${ProjectName}-apiserver'
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref ApiServerTaskDef
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 180
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups: [!Ref EcsTasksSecurityGroup]
+      LoadBalancers:
+        - ContainerName: apiserver
+          ContainerPort: 8080
+          TargetGroupArn: !Ref ApiServerTargetGroup
+
+  FrontendService:
+    Type: AWS::ECS::Service
+    DependsOn: HttpsListener
+    Properties:
+      ServiceName: !Sub '${ProjectName}-frontend'
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref FrontendTaskDef
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups: [!Ref EcsTasksSecurityGroup]
+      LoadBalancers:
+        - ContainerName: frontend
+          ContainerPort: 8080
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  # ---------------- Optional Route53 record ----------------
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt InternalAlb.DNSName
+        HostedZoneId: !GetAtt InternalAlb.CanonicalHostedZoneID
+        EvaluateTargetHealth: true
+
+# -----------------------------------------------------------------------
+# OUTPUTS
+# -----------------------------------------------------------------------
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt InternalAlb.DNSName
+  AlbHostedZoneId:
+    Value: !GetAtt InternalAlb.CanonicalHostedZoneID
+  DependencyTrackUrl:
+    Value: !Sub 'https://${DomainName}'
+  EcsClusterName:
+    Value: !Ref EcsCluster
+  DbEndpoint:
+    Value: !GetAtt DbInstance.Endpoint.Address
+  DbMasterSecretArn:
+    Value: !GetAtt DbInstance.MasterUserSecret.SecretArn
+  EfsFileSystemId:
+    Value: !Ref EfsFileSystem
