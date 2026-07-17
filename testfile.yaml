@@ -533,3 +533,16 @@ Outputs:
     Value: !GetAtt DbInstance.MasterUserSecret.SecretArn
   EfsFileSystemId:
     Value: !Ref EfsFileSystem
+
+# aws cloudformation deploy \
+#   --template-file dependency-track-ecs.yaml \
+#   --stack-name dependency-track \
+#   --capabilities CAPABILITY_NAMED_IAM \
+#   --parameter-overrides \
+#     VpcId=vpc-xxxx \
+#     PrivateSubnetIds=subnet-aaaa,subnet-bbbb \
+#     DomainName=dtrack.internal.example.com \
+#     CertificateArn=arn:aws:acm:...:certificate/xxxx \
+#     OidcIssuer=https://login.microsoftonline.com/<tenant-id>/v2.0 \
+#     OidcClientId=<client-id> \
+#     OidcClientSecret=<client-secret>
