@@ -1,0 +1,162 @@
+# EC2 Per-User Access via Session Manager "Run As"
+
+**Purpose:** Give each developer their own login identity on a shared EC2 instance — no shared SSH passwords, full audit trail via IAM, and file permissions where everyone can read but only owners can write.
+
+**Instance:** `i-061028bxxxx` (region: `us-east-1`, account: `533266958840`)
+
+---
+
+## How it works (summary)
+
+- Developers authenticate to AWS with their **own IAM user**.
+- AWS Systems Manager **Session Manager** is used to connect — no SSH keys, no open port 22, no shared passwords.
+- Each IAM user is tagged with `SSMSessionRunAs`, so when they connect, Session Manager automatically logs them into a **matching Linux OS user** on the instance (e.g., IAM user `alice` → Linux user `alice`).
+- File permissions on the instance are set up so everyone can **read** each other's files but only the **owner can write/edit/delete** their own.
+
+---
+
+## Part A — IAM Users
+
+Each developer has an individual IAM user in the AWS account (created via **IAM → Users → Create user**). No console login is strictly required if they only need SSM session access — access is granted through the policy in Part C.
+
+---## Part B — Run As Tag (per IAM user)
+
+Each IAM user has a tag that maps them to their Linux username:
+
+| Tag Key | Tag Value |
+|---|---|
+| `SSMSessionRunAs` | `<linux-username>` — e.g. `alice`, `bob` |
+
+**Where to set it:** IAM → Users → select user → **Tags** tab → Add tag.
+
+> ⚠️ The tag value must exactly match the Linux username created on the instance in Part E.
+
+---
+
+## Part C — IAM Policy (attached to each developer)
+
+Policy name: `DevTeam-SSM-SessionAccess`
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowConsoleDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "ssm:DescribeInstanceInformation",
+        "ssm:DescribeInstanceProperties",
+        "ssm:GetConnectionStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowStartSession",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": [
+        "arn:aws:ec2:us-east-1:53cxxxx:instance/i-061028bdcxxx",
+        "arn:aws:ssm:us-east-1:533xxx:document/SSM-SessionManagerRunShell"
+      ]
+    },
+    {
+      "Sid": "AllowSessionManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:TerminateSession",
+        "ssm:ResumeSession",
+        "ssm:DescribeSessions"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "ssm:resourceTag/aws:ssmmessages:session-id": "${aws:username}"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Why each part is needed:**
+- `AllowConsoleDescribe` — required just for the EC2/SSM console pages to load and show the Connect button (these are account-wide "Describe" calls; AWS does not support scoping them to a specific instance ARN).
+- `AllowStartSession` — the actual permission to open a session, scoped only to the one instance and the standard session document.
+- `AllowSessionManagement` — lets a user manage (resume/terminate/view) only sessions tied to their own username.
+
+**Known limitation:** `ec2:DescribeInstances` lets developers *see* other instances in the account list (can't be avoided with IAM alone), but they can only *connect* to the one instance ARN listed above.
+
+**Applied to:** attach this policy directly to every developer's IAM user (IAM → Users → select user → Add permissions → Attach policies directly).
+
+---
+
+## Part D — Session Manager Preferences (Run As)
+
+**Where:** Systems Manager Console → **Session Manager** → **Preferences** tab → Edit
+
+Settings enabled:
+- ✅ **Enable Run As support for Linux instances**
+- **Linux default user:** `ssm-user` (fallback for any untagged/unmapped identity — acts as a safety net, not a real login)
+
+This makes Session Manager check the `SSMSessionRunAs` tag on the calling IAM identity and switch to that Linux user automatically on connect.
+
+---
+
+## Part E — Linux Users & Folder Permissions (on the instance)
+
+Run once as an admin on the instance:
+
+```bash
+# Shared group so everyone can read into each other's folders
+sudo groupadd devteam
+
+# Create one Linux user per developer, add to shared group
+sudo useradd -m -s /bin/bash -G devteam alice
+sudo useradd -m -s /bin/bash -G devteam bob
+
+# Shared parent directory
+sudo mkdir -p /data/shared
+sudo chown root:devteam /data/shared
+sudo chmod 2775 /data/shared        # setgid: new items inherit "devteam" group
+
+# Individual subfolders — group can read/list, only owner can write
+sudo mkdir -p /data/shared/alice /data/shared/bob
+sudo chown alice:devteam /data/shared/alice
+sudo chown bob:devteam /data/shared/bob
+sudo chmod 755 /data/shared/alice   # owner: rwx | group & others: r-x
+sudo chmod 755 /data/shared/bob
+```
+
+**Result:**
+- Any developer can `cd`, `ls`, `cat` inside anyone else's folder (read-only visibility).
+- Only the folder owner can create, edit, or delete files inside their own folder.
+
+**To add a new developer later**, repeat for the new username:
+```bash
+sudo useradd -m -s /bin/bash -G devteam <username>
+sudo mkdir -p /data/shared/<username>
+sudo chown <username>:devteam /data/shared/<username>
+sudo chmod 755 /data/shared/<username>
+```
+...plus create their IAM user, add the `SSMSessionRunAs` tag, and attach the `DevTeam-SSM-SessionAccess` policy.
+
+---
+
+## Part F — How Developers Connect
+
+1. Log into AWS Console with their own IAM credentials.
+2. Go to **EC2 → Instances → select the instance → Connect → Session Manager tab → Connect**.
+3. They land directly in a shell as their own Linux user (verify with `whoami`).
+
+---
+
+## Verification Checklist
+
+- [ ] `whoami` shows the developer's own username, not `ssm-user` or `root`
+- [ ] Developer **can** `cd /data/shared/<other-user>` and read files
+- [ ] Developer **cannot** create/edit a file inside another user's folder (`touch` → Permission denied)
+- [ ] Developer **can** freely read/write inside their own folder
+
+---
